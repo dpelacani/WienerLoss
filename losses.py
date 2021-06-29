@@ -19,7 +19,7 @@ class KLD(nn.Module):
 
   def forward(self, mu, sigma):
       """Kl Divergence """
-      return (sigma**2 + mu**2 - torch.log(sigma) - 1/2).sum()
+      return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
       
 
 class SingleAWILoss1D(nn.Module):
@@ -101,7 +101,7 @@ class SingleAWILoss2D(nn.Module):
         r_block = 2 * X.shape[1] -1                       # each row will have a toeplitz matrix of rowsize 2*X.shape[1]
         c_block = X.shape[1]                              # each row will have a toeplitz matrix of colsize X.shape[1]
         n_blocks = X.shape[0]                             # how many rows / number of blocks
-        r = 2*(n_blocks * r_block) -1*r_block             # total number of rows in doubly blocked toeplitz
+        r = 2*(n_blocks * r_block) -1 * r_block             # total number of rows in doubly blocked toeplitz
         c = n_blocks * c_block                            # total number of cols in doubly blocked toeplitz
         
         Z = torch.zeros(r, c, device=X.device)
