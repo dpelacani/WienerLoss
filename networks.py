@@ -39,6 +39,7 @@ class Autoencoder(nn.Module):
     
     # Activation
     self.activation = Mish()
+    # self.activation = nn.ReLU()
     self.sigmoid = nn.Sigmoid()
     
 
@@ -117,9 +118,9 @@ class VAE(nn.Module):
     return x_rec, mu, sigma  # Return the output of the decoder (the reconstructed image), mu and sigma vals
 
 
-class CAE(nn.Module):
+class CAE28(nn.Module):
     def __init__(self, dims_latent, nc=1):
-      super(CAE, self).__init__()
+      super(CAE28, self).__init__()
 
       # Activation
       self.activation = Mish()
@@ -149,6 +150,57 @@ class CAE(nn.Module):
       x = self.activation(self.d_cv2(x.view(-1, 128, 1, 1) ))
       x = self.activation(self.d_cv3(x))
       x = self.sigmoid(self.d_cv4(x)) 
+      return x
+
+ 
+    def forward(self, x, noise_fac=0):
+      z = self.encoder(x)  # Run the image through the Encoder
+      x_rec = self.decoder(z + noise_fac*torch.rand_like(z))  
+      return x_rec  # Return the output of the decoder (the reconstructed image)
+    
+class CAE32(nn.Module):
+    def __init__(self, dims_latent, nc=1, init_channels=16):
+      super(CAE32, self).__init__()
+
+      # Activation
+      self.activation = nn.ReLU()
+      self.activation = Mish()
+      self.sigmoid = nn.Sigmoid()
+      
+      self.init_channels=init_channels
+
+      # Encoder Layers
+      self.e_cv1 = nn.Conv2d(in_channels=nc,  out_channels=self.init_channels,  kernel_size=4, stride=2, padding=1)
+      self.e_cv2 = nn.Conv2d(in_channels=self.init_channels,  out_channels=self.init_channels*2,  kernel_size=4, stride=2, padding=1)
+      self.e_cv3 = nn.Conv2d(in_channels=self.init_channels*2,  out_channels=self.init_channels*4, kernel_size=4, stride=2, padding=1)
+      self.e_cv4 = nn.Conv2d(in_channels=self.init_channels*4,  out_channels=self.init_channels*8, kernel_size=4, stride=2, padding=0)
+      self.e_fc5 = nn.Linear(self.init_channels*8, dims_latent)
+      
+      # Adaptive pool
+      self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+      # Decoder Layers 
+      self.d_fc1 = nn.Linear(dims_latent, self.init_channels*8)
+      self.d_cv2 = nn.ConvTranspose2d(in_channels=self.init_channels*8, out_channels=self.init_channels*4, kernel_size=4, stride=1, padding=0)
+      self.d_cv3 = nn.ConvTranspose2d(in_channels=self.init_channels*4,  out_channels=self.init_channels*2, kernel_size=4, stride=2, padding=1)
+      self.d_cv4 = nn.ConvTranspose2d(in_channels=self.init_channels*2,  out_channels=self.init_channels, kernel_size=4, stride=2, padding=1)
+      self.d_cv5 = nn.ConvTranspose2d(in_channels=self.init_channels,  out_channels=nc, kernel_size=4, stride=2, padding=1)
+
+    def encoder(self, x):
+      z = self.activation(self.e_cv1(x))
+      z = self.activation(self.e_cv2(z))
+      z = self.activation(self.e_cv3(z))
+      z = self.activation(self.e_cv4(z))
+      z = self.avg_pool(z).flatten(start_dim = 1)
+      z = self.activation(self.e_fc5(z))
+      return z
+
+    def decoder(self, z):
+      x = self.activation(self.d_fc1(z))
+      x = self.activation(self.d_cv2(x.view(-1, self.init_channels*8, 1, 1) ))
+      x = self.activation(self.d_cv3(x))
+      x = self.activation(self.d_cv4(x))
+      x = self.sigmoid(self.d_cv5(x))
       return x
 
  
