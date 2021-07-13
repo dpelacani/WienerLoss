@@ -52,11 +52,10 @@ def print_single_stats(key, val):
     return None
 
 
-def train_ae(model, train_loader, optimizer, criterion, w_mse=0., device="cpu"):
+def train_ae(model, train_loader, optimizer, criterion, device="cpu"):
     """ Trains one epoch of Autoencoder """
     model.train()
-    mse = nn.MSELoss()
-    total_loss, total_mse = 0., 0.
+    total_loss = 0.
 
     for i , (X, _) in enumerate(train_loader):
         X = X.to(device)
@@ -67,27 +66,40 @@ def train_ae(model, train_loader, optimizer, criterion, w_mse=0., device="cpu"):
 
         # Evaluate losses
         loss =  criterion(recon, X)
-        # loss =  criterion(X, recon)
-        mse_loss = mse(recon, X)
 
         # Combining losses appropriately, backprop and take step
-        combined_loss = loss 
-        combined_loss.backward()
+        loss.backward()
         optimizer.step()    
 
         total_loss += loss / len(train_loader)
-        total_mse += mse_loss / len(train_loader)
+    return total_loss
 
 
-    return total_loss, total_mse
+def validate_ae(model, train_loader, criterion, device="cpu"):
+    """ Validates loss of a data loader of an autoencoder """
+    model.train()
+    total_loss = 0.
+
+    with torch.no_grad():
+        for i , (X, _) in enumerate(train_loader):
+            X = X.to(device)
+            
+            # Reconstructed images from forward pass
+            recon = model(X)
+
+            # Evaluate losses
+            loss =  criterion(recon, X)
+
+            total_loss += loss / len(train_loader)
+    return total_loss
 
 
-def train_vae(model, train_loader, optimizer, criterion, w_mse=0., device="cpu"):
+def train_vae(model, train_loader, optimizer, criterion, device="cpu"):
     """ Trains one epoch of VAE """
     model.train()
-    mse = nn.MSELoss()
+    
     kld = KLD()
-    total_loss, total_mse, total_kl = 0., 0., 0.
+    total_loss, total_kl = 0., 0.,
 
     for i , (X, _) in enumerate(train_loader):
         X = X.to(device)
@@ -99,7 +111,6 @@ def train_vae(model, train_loader, optimizer, criterion, w_mse=0., device="cpu")
         # Evaluate losses
         loss =  criterion(recon, X)
         kld_loss = kld(mu, sigma)
-        mse_loss = mse(recon, X)
 
         # Combining losses appropriately, backprop and take step
         combined_loss = loss + kld_loss 
@@ -108,10 +119,9 @@ def train_vae(model, train_loader, optimizer, criterion, w_mse=0., device="cpu")
         
         # Keep track of total losses
         total_loss += loss / len(train_loader)
-        total_kl   += kld_loss / len(train_loader)
-        total_mse  += mse_loss / len(train_loader)  
+        total_kl   += kld_loss / len(train_loader) 
         
-    return total_loss, total_mse, total_kl
+    return total_loss, total_kl
 
 
 def plot_grad_flow(named_parameters):
