@@ -23,12 +23,14 @@ class KLD(nn.Module):
       return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
       
 class AWLoss1D(nn.Module):
-    def __init__(self, alpha=0., epsilon=0., std=1., reduction="sum", return_filters=False) :
+    def __init__(self, alpha=0., epsilon=0., std=1., reduction="sum", store_filters=False) :
         super(AWLoss1D, self).__init__()
         self.alpha = alpha
         self.epsilon = epsilon
         self.std = std
-        self.return_filters = return_filters
+        self.store_filters = store_filters
+        self.v_all = None
+        self.T_arr = None
 
         if reduction=="mean" or reduction=="sum":
             self.reduction = reduction
@@ -53,10 +55,9 @@ class AWLoss1D(nn.Module):
         return a*torch.exp(-(xarr - mean)**2 / (2*std**2))
 
     def T(self, xarr, std=1.):
-        tarr = -self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
-        tarr = tarr + torch.max(torch.abs(tarr))
+        tarr = self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
+        tarr = -tarr + torch.max(torch.abs(tarr))
         tarr = tarr / torch.max(torch.abs(tarr))
-        # tarr = 1 - torch.exp(-50*xarr**2)
         return  tarr
 
     def norm(self, A):
@@ -65,10 +66,11 @@ class AWLoss1D(nn.Module):
     def forward(self, recon, target):
         assert recon.shape == target.shape
         recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
+        
+        self.T_arr = self.T(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
+        if self.store_filters: self.v_all = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.store_filters else None
+        
         f = 0
-        T = self.T(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
-        v_all = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.return_filters else None
-
         for i in range(recon.size(0)):
             D = self.make_toeplitz(target[i])
             D_t = D.T
@@ -76,21 +78,25 @@ class AWLoss1D(nn.Module):
             v = v + torch.diag(self.alpha*torch.diagonal(v) + self.epsilon)
             v = torch.inverse(v)
             v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
-            f = f + 0.5 * self.norm(T * v) / self.norm(v)
-            if self.return_filters: v_all[i] = v[:]
+            f = f + 0.5 * self.norm(self.T_arr * v) / self.norm(v)
+            if self.store_filters: self.v_all[i] = v[:]
                 
         if self.reduction == "mean":
             f = f / recon.size(0)
-        return (f, v_all, T) if self.return_filters else f
+            
+        return f
       
       
 class AWLoss2D(nn.Module):
-    def __init__(self, alpha=0., epsilon=0., std=1., reduction="sum", return_filters=False):
+    def __init__(self, alpha=0., epsilon=0., std=1., reduction="sum", store_filters=False):
         super(AWLoss2D, self).__init__()
         self.alpha = alpha
         self.epsilon = epsilon
         self.std = std
-        self.return_filters = return_filters
+        self.store_filters = store_filters
+        self.v_all = None
+        self.T_arr = None
+        
         if reduction=="mean" or reduction=="sum":
           self.reduction = reduction
         else:
@@ -107,11 +113,11 @@ class AWLoss2D(nn.Module):
     
     def make_doubly_block(self, X):
         """Makes Doubly Blocked Toeplitz of a matrix X [r, c]"""
-        r_block = 3 * X.shape[1] -2                       # each row will have a toeplitz matrix of rowsize 2*X.shape[1]
-        c_block = 2*X.shape[1]  -1                        # each row will have a toeplitz matrix of colsize X.shape[1]
+        r_block = 3 * X.shape[1] -2                       # each row will have a toeplitz matrix of rowsize 3*X.shape[1] - 2
+        c_block = 2*X.shape[1]  -1                        # each row will have a toeplitz matrix of colsize 2*X.shape[1] - 1
         n_blocks = X.shape[0]                             # how many rows / number of blocks
         r = 3*(n_blocks * r_block) -2*r_block             # total number of rows in doubly blocked toeplitz
-        c = 2*(n_blocks * c_block) -1*c_block                            # total number of cols in doubly blocked toeplitz
+        c = 2*(n_blocks * c_block) -1*c_block             # total number of cols in doubly blocked toeplitz
         
         Z = torch.zeros(r, c, device=X.device)
         for i in range(X.shape[0]):
@@ -150,7 +156,7 @@ class AWLoss2D(nn.Module):
     
     def norm(self, A):
         return torch.sqrt(torch.sum((A)**2))
-
+      
     
     def forward(self, recon, target):
         """
@@ -187,8 +193,8 @@ class AWLoss2D(nn.Module):
         bs, nc = recon.size(0), recon.size(1)
 
         filter_shape = (2*recon.shape[2] - 1, 2*recon.shape[3] - 1)
-        T = self.T2D(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
-        if self.return_filters: v_all = torch.zeros(bs, filter_shape[0], filter_shape[1]) # one filter per image 
+        self.T_arr = self.T2D(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
+        if self.store_filters: self.v_all = torch.zeros(bs, filter_shape[0], filter_shape[1]).to(recon.device) # one filter per image 
 
         ## COULD BE VECTORISED? This loop treats every image in batch and every channel of each image as a "separate" sample
         f = 0
@@ -200,9 +206,10 @@ class AWLoss2D(nn.Module):
             v = v + torch.diag(self.alpha*torch.diagonal(v)+self.epsilon) # stabilise diagonals for matrix inversion
             v = torch.inverse(v) ## COULD BE OPTIMISED?
             v = v @ (Z_t @ self.pad_edges_to_shape(recon[i][j], (3*recon.shape[2] - 2, 3*recon.shape[3] - 2)).flatten(start_dim=0))
-            f = f + 0.5 * self.norm(T.flatten()* v) / self.norm(v)
-            if self.return_filters: v_all[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
+            f = f + 0.5 * self.norm(self.T_arr.flatten()* v) / self.norm(v)
+            if self.store_filters: self.v_all[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
         
         if self.reduction=="mean":
           f = f / (bs * nc)
-        return (f, v_all, T) if self.return_filters else f
+          
+        return f
