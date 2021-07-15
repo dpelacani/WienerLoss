@@ -14,6 +14,7 @@ class TV(nn.Module):
       torch.sum(torch.abs(x[:, :, :-1, :] - x[:, :, 1:, :])))
       return reg
 
+
 class KLD(nn.Module):
   def __init__(self):
     super(KLD, self).__init__()
@@ -21,6 +22,7 @@ class KLD(nn.Module):
   def forward(self, mu, sigma):
       """Kl Divergence """
       return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
+      
       
 class AWLoss1D(nn.Module):
     def __init__(self, alpha=0., epsilon=0., std=1., reduction="sum", store_filters=False) :
@@ -56,7 +58,7 @@ class AWLoss1D(nn.Module):
 
     def T(self, xarr, std=1.):
         tarr = self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
-        tarr = -tarr + torch.max(torch.abs(tarr))
+        # tarr = -tarr + torch.max(torch.abs(tarr))
         tarr = tarr / torch.max(torch.abs(tarr))
         return  tarr
 
@@ -78,7 +80,8 @@ class AWLoss1D(nn.Module):
             v = v + torch.diag(self.alpha*torch.diagonal(v) + self.epsilon)
             v = torch.inverse(v)
             v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
-            f = f + 0.5 * self.norm(self.T_arr * v) / self.norm(v)
+            v = v / self.norm(v)
+            f = f + 0.5 * self.norm(self.T_arr - v) #/ self.norm(v)
             if self.store_filters: self.v_all[i] = v[:]
                 
         if self.reduction == "mean":
@@ -149,8 +152,8 @@ class AWLoss2D(nn.Module):
         dispx, dispy = (len(xarr) % 2 - 1) / 2, (len(yarr) % 2 - 1) / 2
         dx, dy = (xarr[-1] - xarr[0]) / (len(xarr) - 1), (yarr[-1] - yarr[0]) / (len(yarr) - 1)
 
-        tarr = -self.gauss2d(xx, yy, mx=dx*dispx, my=dy*dispy, sx=stdx, sy=stdy, a=1.)
-        tarr = tarr + torch.max(torch.abs(tarr))
+        tarr = self.gauss2d(xx, yy, mx=dx*dispx, my=dy*dispy, sx=stdx, sy=stdy, a=1.)
+        # tarr = -tarr + torch.max(torch.abs(tarr))
         tarr = tarr / torch.max(torch.abs(tarr)) # normalise amplitude of T
         return tarr.to(device)
     
@@ -206,7 +209,8 @@ class AWLoss2D(nn.Module):
             v = v + torch.diag(self.alpha*torch.diagonal(v)+self.epsilon) # stabilise diagonals for matrix inversion
             v = torch.inverse(v) ## COULD BE OPTIMISED?
             v = v @ (Z_t @ self.pad_edges_to_shape(recon[i][j], (3*recon.shape[2] - 2, 3*recon.shape[3] - 2)).flatten(start_dim=0))
-            f = f + 0.5 * self.norm(self.T_arr.flatten()* v) / self.norm(v)
+            v = v / self.norm(v)
+            f = f + 0.5 * self.norm(self.T_arr.flatten() - v) #/ self.norm(v)
             if self.store_filters: self.v_all[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
         
         if self.reduction=="mean":
