@@ -210,9 +210,9 @@ class CAE32(nn.Module):
       return x_rec  # Return the output of the decoder (the reconstructed image)
 
 
-class CVAE(nn.Module):
+class CVAE28(nn.Module):
     def __init__(self, dims_latent, nc=1):
-      super(CVAE, self).__init__()
+      super(CVAE28, self).__init__()
 
       # Activation
       self.activation = Mish()
