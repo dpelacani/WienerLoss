@@ -64,12 +64,12 @@ def validate(model, train_loader, criterion, device="cpu"):
             # Reconstructed images from forward pass
             recon = model(X)
             if isinstance(recon, tuple): # if model returns more than one variable
-                recon = recon[0] 
+                recon, mu, sigma = recon 
 
             # Evaluate losses
             loss =  criterion(recon, X)
-
-            total_loss += loss / len(train_loader)
+            
+            total_loss += loss.sum()/ len(train_loader)
     return total_loss
 
 
@@ -95,13 +95,13 @@ def train(model, train_loader, optimizer, criterion, device="cpu"):
         loss =  criterion(recon, X)
 
         # Combining losses appropriately, backprop and take step
-        combined_loss = loss + kld_loss 
+        combined_loss = loss.sum() + kld_loss.sum() 
         combined_loss.backward()
         optimizer.step()  
         
         # Keep track of total losses
-        total_loss += loss / len(train_loader)
-        total_kl   += kld_loss / len(train_loader) 
+        total_loss += loss.sum() / len(train_loader)
+        total_kl   += kld_loss.sum() / len(train_loader) 
         
     return total_loss, total_kl
 
