@@ -52,32 +52,9 @@ def print_single_stats(key, val):
     return None
 
 
-def train_ae(model, train_loader, optimizer, criterion, device="cpu"):
-    """ Trains one epoch of Autoencoder """
-    model.train()
-    total_loss = 0.
-
-    for i , (X, _) in enumerate(train_loader):
-        X = X.to(device)
-        optimizer.zero_grad()
-
-        # Reconstructed images from forward pass
-        recon = model(X)
-
-        # Evaluate losses
-        loss =  criterion(recon, X)
-
-        # Combining losses appropriately, backprop and take step
-        loss.backward()
-        optimizer.step()    
-
-        total_loss += loss / len(train_loader)
-    return total_loss
-
-
-def validate_ae(model, train_loader, criterion, device="cpu"):
-    """ Validates loss of a data loader of an autoencoder """
-    model.train()
+def validate(model, train_loader, criterion, device="cpu"):
+    """ Validates loss of a data loader of an autoencoder or variational autoencoder whose output has the recon image as the first item """
+    model.eval()
     total_loss = 0.
 
     with torch.no_grad():
@@ -86,6 +63,8 @@ def validate_ae(model, train_loader, criterion, device="cpu"):
             
             # Reconstructed images from forward pass
             recon = model(X)
+            if isinstance(recon, tuple): # if model returns more than one variable
+                recon = recon[0] 
 
             # Evaluate losses
             loss =  criterion(recon, X)
@@ -94,8 +73,8 @@ def validate_ae(model, train_loader, criterion, device="cpu"):
     return total_loss
 
 
-def train_vae(model, train_loader, optimizer, criterion, device="cpu"):
-    """ Trains one epoch of VAE """
+def train(model, train_loader, optimizer, criterion, device="cpu"):
+    """ Trains one epoch of"""
     model.train()
     
     kld = KLD()
@@ -106,11 +85,14 @@ def train_vae(model, train_loader, optimizer, criterion, device="cpu"):
         optimizer.zero_grad()
 
         # Reconstructed images from forward pass
-        recon, mu, sigma = model(X)
+        recon = model(X)
+        kld_loss = torch.tensor([0.]).to(device)
+        if isinstance(recon, tuple):
+            recon, mu, sigma = recon
+            kld_loss = kld(mu, sigma)
 
         # Evaluate losses
         loss =  criterion(recon, X)
-        kld_loss = kld(mu, sigma)
 
         # Combining losses appropriately, backprop and take step
         combined_loss = loss + kld_loss 
@@ -156,3 +138,4 @@ def plot_grad_flow(named_parameters):
                 Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
     plt.show()
     return None
+

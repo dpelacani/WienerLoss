@@ -25,7 +25,7 @@ class KLD(nn.Module):
       
       
 class AWLoss1D(nn.Module):
-    def __init__(self, alpha=0., epsilon=0., std=1., reduction="sum", store_filters=False) :
+    def __init__(self, alpha=0., epsilon=0., std=1e-4, reduction="sum", store_filters=False) :
         super(AWLoss1D, self).__init__()
         self.alpha = alpha
         self.epsilon = epsilon
@@ -72,7 +72,7 @@ class AWLoss1D(nn.Module):
         self.T_arr = self.T(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
         if self.store_filters: self.v_all = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.store_filters else None
         
-        f = 0
+        f = 0.
         for i in range(recon.size(0)):
             D = self.make_toeplitz(target[i])
             D_t = D.T
@@ -91,7 +91,7 @@ class AWLoss1D(nn.Module):
       
       
 class AWLoss2D(nn.Module):
-    def __init__(self, alpha=0., epsilon=0., std=1., reduction="sum", store_filters=False):
+    def __init__(self, alpha=0., epsilon=0., std=1e-4, reduction="sum", store_filters=False):
         super(AWLoss2D, self).__init__()
         self.alpha = alpha
         self.epsilon = epsilon
@@ -200,7 +200,7 @@ class AWLoss2D(nn.Module):
         if self.store_filters: self.v_all = torch.zeros(bs, filter_shape[0], filter_shape[1]).to(recon.device) # one filter per image 
 
         ## COULD BE VECTORISED? This loop treats every image in batch and every channel of each image as a "separate" sample
-        f = 0
+        f = 0.
         for i in range(bs): 
           for j in range(nc):
             Z = self.make_doubly_block(target[i][j])
