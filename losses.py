@@ -81,7 +81,7 @@ class AWLoss1D(nn.Module):
             v = torch.inverse(v)
             v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
             v = v / self.norm(v)
-            f = f + 0.5 * self.norm(self.T_arr - v) #/ self.norm(v)
+            f = f + 0.5 * self.norm(self.T_arr - v) #+ 100*self.norm(v)
             if self.store_filters: self.v_all[i] = v[:]
                 
         if self.reduction == "mean":
@@ -216,4 +216,72 @@ class AWLoss2D(nn.Module):
         if self.reduction=="mean":
           f = f / (bs * nc)
           
+        return f
+    
+    
+class AWLoss1DRoll(nn.Module):
+    def __init__(self, alpha=0., epsilon=0., std=1e-4, reduction="sum", store_filters=False) :
+        super(AWLoss1DRoll, self).__init__()
+        self.alpha = alpha
+        self.epsilon = epsilon
+        self.std = std
+        self.store_filters = store_filters
+        self.v_all = None
+        self.T_arr = None
+
+        if reduction=="mean" or reduction=="sum":
+            self.reduction = reduction
+        else:
+            raise ValueError
+
+    def make_toeplitz(self, a):
+        h = a.size(0)
+        r, c = 3*h-2, 2*h-1 # Size of toeplitz matrix for filter of size 2h-1
+        z = torch.zeros(r - h, device=a.device)
+        x = torch.cat([a, z], dim = 0)
+        A = torch.zeros((r, c), device=a.device)
+        for j in range(c):
+            A[:, j] = torch.roll(x, j)
+        return A
+
+    def pad_edges_to_len(self, x, length, val=0):
+        total_pad = length - len(x)
+        pad_lef = floor(total_pad / 2)
+        pad_rig = total_pad - pad_lef
+        return nn.ConstantPad1d((pad_lef, pad_rig), val)(x)
+
+    def gaussian(self, xarr, a, std, mean):
+        return a*torch.exp(-(xarr - mean)**2 / (2*std**2))
+
+    def T(self, xarr, std=1.):
+        tarr = self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
+        # tarr = -tarr + torch.max(torch.abs(tarr))
+        tarr = tarr / torch.max(torch.abs(tarr))
+        return  tarr
+
+    def norm(self, A):
+        return torch.sqrt(torch.sum(A**2))
+    
+    def forward(self, recon, target):
+        assert recon.shape == target.shape
+        recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
+        
+        self.T_arr = self.T(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
+        if self.store_filters: self.v_all = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.store_filters else None
+        
+        f = 0.
+        for i in range(recon.size(0)):
+            D = self.make_toeplitz(target[i])
+            D_t = D.T
+            v = D.T @ D
+            v = v + torch.diag(self.alpha*torch.diagonal(v) + self.epsilon)
+            v = torch.inverse(v)
+            v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
+            v = v / self.norm(v)
+            f = f + 0.5 * self.norm(self.T_arr - v) #+ 100*self.norm(v)
+            if self.store_filters: self.v_all[i] = v[:]
+                
+        if self.reduction == "mean":
+            f = f / recon.size(0)
+            
         return f
