@@ -247,6 +247,7 @@ class AWLoss1DFFT(nn.Module):
 
     def wiener_config(self, input, scale_factor=2):
         """
+        George Strong (geowstrong@gmail.com)
         Wiener filter configuration function that calculates the appropriate
         padding required for the specified size of the Wiener filter
         """
@@ -263,6 +264,7 @@ class AWLoss1DFFT(nn.Module):
         
     def wienerfft(self, x, y, prwh=3e-15):
         """
+        George Strong (geowstrong@gmail.com)
         calculates the optimal least squares convolutional Wiener filter that 
         transforms signal x into signal y
         """
