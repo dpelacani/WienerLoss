@@ -1,4 +1,5 @@
-MNIST/
-cifar-10-batches-py/
+notebooks/mnist_example/MNIST/
+notebooks/cifar10_example/cifar-10-batches-py/
 images/
-cifar-10-python.tar.gz
+notebooks/cifar10_example/cifar-10-python.tar.gz
+wandb/
