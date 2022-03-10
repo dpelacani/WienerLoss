@@ -23,7 +23,8 @@ class KLD(nn.Module):
       """Kl Divergence """
       return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
       
-      
+
+# Combine losses into major AWLoss and split into derived classes      
 class AWLoss1D(nn.Module):
     def __init__(self, alpha=0., epsilon=0., std=1e-4, reduction="sum", store_filters=False) :
         super(AWLoss1D, self).__init__()
@@ -66,23 +67,36 @@ class AWLoss1D(nn.Module):
         return torch.sqrt(torch.sum(A**2))
     
     def forward(self, recon, target):
+        """
+        Adaptive Weiner Loss Computation
+        Loss is based on reverse AWI, which makes use of a more efficient computational graph (see paper)
+        In reverse FWI, the filter v computed below is the filter that transforms  "target" into "recon"
+
+        """
         assert recon.shape == target.shape
         recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
+        # recon, target = torch.flip(recon, dims=(0,1)), torch.flip(target, dims=(0,1))
+
         
         self.T_arr = self.T(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
         if self.store_filters: self.v_all = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.store_filters else None
         
         f = 0.
         for i in range(recon.size(0)):
+            # Compute filter -- store if prompted
             D = self.make_toeplitz(target[i])
             D_t = D.T
             v = D.T @ D
-            v = v + torch.diag(self.alpha*torch.diagonal(v) + self.epsilon)
+            v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)
             v = torch.inverse(v)
             v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
+            
+            # Normalise filter and store
             v = v / self.norm(v)
-            f = f + 0.5 * self.norm(self.T_arr - v) #+ 100*self.norm(v)
             if self.store_filters: self.v_all[i] = v[:]
+
+            # Compute functional
+            f = f + 0.5 * self.norm(self.T_arr - v) #+ 100*self.norm(v)
                 
         if self.reduction == "mean":
             f = f / recon.size(0)
@@ -203,15 +217,19 @@ class AWLoss2D(nn.Module):
         f = 0.
         for i in range(bs): 
           for j in range(nc):
+            # Compute filter -- store if prompted
             Z = self.make_doubly_block(target[i][j])
             Z_t = Z.T        
             v = Z_t @ Z
-            v = v + torch.diag(self.alpha*torch.diagonal(v)+self.epsilon) # stabilise diagonals for matrix inversion
+            v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)# stabilise diagonals for matrix inversion
             v = torch.inverse(v) ## COULD BE OPTIMISED?
             v = v @ (Z_t @ self.pad_edges_to_shape(recon[i][j], (3*recon.shape[2] - 2, 3*recon.shape[3] - 2)).flatten(start_dim=0))
+            if self.store_filters: self.v_all[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
+            
+            # Compute functional
             v = v / self.norm(v)
             f = f + 0.5 * self.norm(self.T_arr.flatten() - v) #/ self.norm(v)
-            if self.store_filters: self.v_all[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
+            
         
         if self.reduction=="mean":
           f = f / (bs * nc)
@@ -273,11 +291,11 @@ class AWLoss1DFFT(nn.Module):
         
         Fccorr = torch.fft.fft(torch.flip(x, (0,1))) * torch.fft.fft(y) # cross-correlation of x with y
         Facorr = torch.fft.fft(torch.flip(x, (0,1))) * torch.fft.fft(x) # auto-correlation of x
-
-        Fdconv = Fccorr/(Facorr + torch.abs(Facorr).max()*prwh) # deconvolution of Fccorr by Facorr with pre-whiteninig
+        Facorr = Facorr + torch.abs(Facorr).max()*prwh # apply pre-whitening
+        Fdconv = Fccorr/(Facorr) # deconvolution of Fccorr by Facorr 
         w =  torch.fft.irfft(Fdconv, x.shape[1]) # inverse Fourier transform
-        w = torch.flip(w, dims=(0, 1))
-
+        # w = torch.flip(w, dims=(0, 1))
+        # print(w.shape)
         return w
 
     def forward(self, recon, target):
@@ -293,6 +311,7 @@ class AWLoss1DFFT(nn.Module):
         # Apply padding for FFT convolution
         N, P, M, recon_pad_val, target_pad_val = self.wiener_config(recon, self.filter_scale)
         # print(N, P, M, recon_pad_val, target_pad_val)
+        # print(N, P, M, recon_pad_val, target_pad_val)
         recon = nn.ConstantPad1d((0, recon_pad_val), 0)(recon)
         target = nn.ConstantPad1d((target_pad_val, target_pad_val), 0)(target)
         # plt.plot(recon[0])
@@ -301,24 +320,71 @@ class AWLoss1DFFT(nn.Module):
 
         # Store penalty and filters for stats and debugging
         if self.store_filters: self.v_all = torch.zeros(recon.shape[0], P).to(recon.device) if self.store_filters else None
+
+
         self.T_arr = self.penalty(torch.linspace(-1., 1., P, requires_grad=True), self.std).to(recon.device)
-        T_all = self.T_arr.repeat(recon.size(0), 1)
+        T = self.T_arr.repeat(recon.size(0), 1)
 
         # Compute weiner filter and normalise each by its norm
-        w = self.wienerfft(recon, target, self.epsilon)
-        w = torch.roll(w, int(-(N-1)/2))     # roll filter to the center of the array
-        w = w[:, int(N/2):int(N/2+P)] 
-        # print(w.shape)
-        # print("PEAK:", torch.argmax(w)) #121
-        # plt.plot(w[0]) 
-        # plt.show()
+        w = self.wienerfft(recon, target, self.epsilon) 
+        # w = torch.roll(w, int(-(N-1)/2))     # roll filter to the center of the array
+        # w = w[:, int(N/2):int(N/2)+ P]
+        # plt.plot(w[0], color="blue")
+
+
+        # w = torch.roll(w, int(-(N-1)/2))     # roll filter to the center of the array
+        # w = torch.roll(w, -int((M+P)/2), )     # roll filter to the center of the array
         
-        w = nn.functional.normalize(w)
+        # w = w[:, int(N/2):int(N/2)+ P]
+        # w = w[:, (M-P) :]
+
+        # w = w[:, M-P:M]
+        w = w[:, :-(M-P)]
+        # w = torch.flip(w, dims=(0, 1))
+        # w = torch.roll(w, - int((P+1)/2))
+
+        # plt.plot(w[0], color="red", linestyle="--")
+        # plt.show() 
+        # print(torch.argmax(torch.abs(w[0])))
+
+        w = w.T / torch.linalg.norm(w, dim=1)
+        w = w.T
+
         if self.store_filters: self.v_all = w[:]
 
         # Loss function
-        f = (0.5 * torch.linalg.norm(T_all - w , dim=1)).sum() #+ 100*self.norm(v)    
+        # print(w.shape)
+        # print(torch.linalg.xnorm(w))
+        # w = w / (torch.linalg.norm(w) / w.size(0))
+        # w = nn.functional.normalize(w, dim=1)
+        # for i in range(w.shape[0]):
+        #     print(torch.max(torch.abs(w[i])))
+
+        # print(w.shape)
+        # plt.contourf(T.detach().numpy(), vmin=-1, vmax=1)
+        # plt.show()
+
+        # plt.contourf(w.detach().numpy())#, vmin=-1, vmax=1)
+        # plt.show()
+
+        # plt.contourf((T-w).detach().numpy(), vmin=-1, vmax=1)
+        # plt.show()
+
+        # w  = nn.functional.normalize(w, dim=1)
+        # print(w.shape, ((torch.abs(w)).max(dim=1).values).shape)
+
+        # for i in range(0, w.shape[0]):
+        #     w[i] = w[i] / torch.max(torch.abs(w[i]), dim)
+        # print(w.shape, w.min(dim=1).values, w.max(dim=1).values)     
+        # print("w: ", w)   
+        # plt.plot(w[0].detach().numpy())
+        # plt.show()
+        f = 0.5 * torch.linalg.norm(T - w, dim=1)#/torch.linalg.norm(w, dim=1) #+ 100*self.norm(v)
+        # print(f.shape)
+        # f = 0.5 * torch.linalg.norm(T *  w, dim=1) / torch.linalg.norm( w, dim=1)
+        f = f.sum()    
         if self.reduction == "mean":
             f = f / recon.size(0)
-            
+
+
         return f
