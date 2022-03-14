@@ -23,7 +23,6 @@ class KLD(nn.Module):
       """Kl Divergence """
       return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
       
-
 # Combine losses into major AWLoss and split into derived classes      
 class AWLoss1D(nn.Module):
     def __init__(self, alpha=0., epsilon=0., std=1e-4, reduction="sum", store_filters=False) :
@@ -298,11 +297,15 @@ class AWLoss1DFFT(nn.Module):
         # print(w.shape)
         return w
 
+    def norm(self, A, dim=0):
+        return torch.sqrt(torch.sum(A**2, dim=dim))
+
     def forward(self, recon, target):
         assert recon.shape == target.shape
         
         # Flatten recon and target for 1D processing
         recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
+        # recon = recon + torch.randn_like(recon)*3e-1
         # print(recon.shape, target.shape)
         # plt.plot(recon[0])
         # plt.plot(target[0], "--")
@@ -347,8 +350,9 @@ class AWLoss1DFFT(nn.Module):
         # plt.show() 
         # print(torch.argmax(torch.abs(w[0])))
 
-        w = w.T / torch.linalg.norm(w, dim=1)
-        w = w.T
+        # w = w.T / torch.linalg.norm(w, dim=1)
+        w = w / self.norm(w, dim=1)
+        # w = w.T
 
         if self.store_filters: self.v_all = w[:]
 
@@ -379,7 +383,8 @@ class AWLoss1DFFT(nn.Module):
         # print("w: ", w)   
         # plt.plot(w[0].detach().numpy())
         # plt.show()
-        f = 0.5 * torch.linalg.norm(T - w, dim=1)#/torch.linalg.norm(w, dim=1) #+ 100*self.norm(v)
+        # f = 0.5 * torch.linalg.norm(T - w, dim=1)#/torch.linalg.norm(w, dim=1) #+ 100*self.norm(v)
+        f = 0.5 * self.norm(T - w, dim=1)
         # print(f.shape)
         # f = 0.5 * torch.linalg.norm(T *  w, dim=1) / torch.linalg.norm( w, dim=1)
         f = f.sum()    
