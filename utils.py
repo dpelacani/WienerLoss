@@ -8,7 +8,6 @@ from pycm import *
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-
 def set_seed(seed):
     """
     Use this to set ALL the random seeds to a fixed value and take out any randomness from cuda kernels
@@ -102,7 +101,7 @@ def train(model, train_loader, optimizer, criterion, device="cpu"):
         # Keep track of total losses
         total_loss += loss.sum() / len(train_loader)
         total_kl   += kld_loss.sum() / len(train_loader) 
-        
+    
     return total_loss, total_kl
 
 

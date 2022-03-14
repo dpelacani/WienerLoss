@@ -30,11 +30,15 @@ class AWLoss(nn.Module):
         self.store_filters = store_filters
         self.filters = None
         self.T = None
+        self.current_epoch = 0
 
         if reduction=="mean" or reduction=="sum":
             self.reduction = reduction
         else:
-            raise ValueError  
+            raise ValueError
+
+    def update_epoch(self):
+        self.epoch = self.current_epoch + 1 
 
     def make_toeplitz(self, a):
         "Makes toeplitz matrix of a vector A"
@@ -63,7 +67,10 @@ class AWLoss(nn.Module):
         return Z  
 
     def pad_edges_to_len(self, x, length, val=0):
-        total_pad = length - len(x)
+        """
+        x must be a 1d signal of shape [batch_size, signal_length]
+        """
+        total_pad = length - x.shape[1]
         pad_lef = floor(total_pad / 2)
         pad_rig = total_pad - pad_lef
         return nn.ConstantPad1d((pad_lef, pad_rig), val)(x)
@@ -121,15 +128,15 @@ class AWLoss1D(AWLoss):
         
         f = 0.
         for i in range(recon.size(0)):
-            # Compute filter -- store if prompted
+            # Compute filter
             D = self.make_toeplitz(target[i])
             D_t = D.T
             v = D.T @ D
             v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)
             v = torch.inverse(v)
-            v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
+            v = v @ (D_t @ self.pad_edges_to_len(recon[i].unsqueeze(0), D_t.shape[1])[0])
             
-            # Normalise filter and store
+            # Normalise filter and store if prompted
             v = v / self.norm(v)
             if self.store_filters: self.filters[i] = v[:]
 
@@ -138,7 +145,7 @@ class AWLoss1D(AWLoss):
                 
         if self.reduction == "mean":
             f = f / recon.size(0)
-            
+
         return f
       
       
@@ -189,7 +196,7 @@ class AWLoss2D(AWLoss):
         f = 0.
         for i in range(bs): 
           for j in range(nc):
-            # Compute filter -- store if prompted
+            # Compute filter
             Z = self.make_doubly_block(target[i][j])
             Z_t = Z.T        
             v = Z_t @ Z
@@ -197,7 +204,7 @@ class AWLoss2D(AWLoss):
             v = torch.inverse(v) ## COULD BE OPTIMISED?
             v = v @ (Z_t @ self.pad_edges_to_shape(recon[i][j], (3*recon.shape[2] - 2, 3*recon.shape[3] - 2)).flatten(start_dim=0))
             
-            # Normalise filter and store
+            # Normalise filter and store if prompted
             v = v / self.norm(v)
             if self.store_filters: self.filters[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
             
@@ -215,23 +222,6 @@ class AWLoss1DFFT(AWLoss):
     def __init__(self, filter_scale=2, *args, **kwargs) :
         super(AWLoss1DFFT, self).__init__(*args, **kwargs)
         self.filter_scale = filter_scale
-
-    def wiener_config(self, input, scale_factor=2):
-        """
-        George Strong (geowstrong@gmail.com)
-        Wiener filter configuration function that calculates the appropriate
-        padding required for the specified size of the Wiener filter
-        """
-        N = input.shape[1]              # length of vector
-        P = scale_factor*N              # length of Wiener filter and number of columns in D
-        M = N+P-1                       # defines number of rows in D matrix
-        if (M-N)%2 != 0:        
-            P = P-1
-            M = N+P-1
-        
-        input_pad_val = int((M-N))         # amount of padding for input
-        target_pad_val = int((M-N)/2)      # amount of padding for target
-        return N, P, M, input_pad_val, target_pad_val
         
     def wienerfft(self, x, y, prwh=3e-15):
         """
@@ -242,17 +232,13 @@ class AWLoss1DFFT(AWLoss):
 
         assert x.shape == y.shape, "signals x and y must be the same size but are {} and {}".format(x.shape, y.shape)
         
-        Fccorr = torch.fft.fft(torch.flip(x, (0,1))) * torch.fft.fft(y) # cross-correlation of x with y
-        Facorr = torch.fft.fft(torch.flip(x, (0,1))) * torch.fft.fft(x) # auto-correlation of x
-        Facorr = Facorr + torch.abs(Facorr).max()*prwh # apply pre-whitening
-        Fdconv = Fccorr/(Facorr) # deconvolution of Fccorr by Facorr 
-        w =  torch.fft.irfft(Fdconv, x.shape[1]) # inverse Fourier transform
-        # w = torch.flip(w, dims=(0, 1))
-        # print(w.shape)
-        return w
+        Fccorr = torch.fft.fft(torch.flip(x, (0,1)), dim=1)*torch.fft.fft(y, dim=1) # cross-correlation of x with y 
+        Facorr = torch.fft.fft(torch.flip(x, (0,1)), dim=1)*torch.fft.fft(x, dim=1) # auto-correlation of x
+        Fdconv = Fccorr/(Facorr+torch.abs(Facorr).max()*prwh) # deconvolution of Fccorr by Facorr
+        rolled = torch.fft.irfft(Fdconv, x.shape[1], dim=1) # inverse Fourier transform
+        return torch.roll(rolled, int(-x.shape[1]/2-1), dims=1)
 
-
-    def forward(self, recon, target):
+    def forward(self, recon, target, epsilon=None):
         """
         Implements AWLoss using 1D filters and flattened images in the frequency domain
         """
@@ -260,88 +246,31 @@ class AWLoss1DFFT(AWLoss):
         
         # Flatten recon and target for 1D processing
         recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
-        # recon = recon + torch.randn_like(recon)*3e-1
-        # print(recon.shape, target.shape)
-        # plt.plot(recon[0])
-        # plt.plot(target[0], "--")
-        # plt.show()
+
+        # Define size of the filter, reserve memory to store them if prompted
+        filter_size = self.filter_scale*recon.shape[1]
+        if filter_size % 2 == 0:
+            filter_size = filter_size - 1
+        self.filters = torch.zeros(recon.shape[0], filter_size).to(recon.device) if self.store_filters else None
 
         # Apply padding for FFT convolution
-        N, P, M, recon_pad_val, target_pad_val = self.wiener_config(recon, self.filter_scale)
-        # print(N, P, M, recon_pad_val, target_pad_val)
-        # print(N, P, M, recon_pad_val, target_pad_val)
-        recon = nn.ConstantPad1d((0, recon_pad_val), 0)(recon)
-        target = nn.ConstantPad1d((target_pad_val, target_pad_val), 0)(target)
-        # plt.plot(recon[0])
-        # plt.plot(target[0], "--")
-        # plt.show()
+        recon = self.pad_edges_to_len(recon, filter_size)
+        target = self.pad_edges_to_len(target, filter_size)
 
-        # Store penalty and filters for stats and debugging
-        if self.store_filters: self.filters = torch.zeros(recon.shape[0], P).to(recon.device) if self.store_filters else None
+        # Compute weiner filter
+        epsilon = self.epsilon if epsilon is None else epsilon
+        w = self.wienerfft(recon, target, epsilon)
 
-
-        self.T = self.penalty(torch.linspace(-1., 1., P, requires_grad=True), self.std).to(recon.device)
-        T = self.T.repeat(recon.size(0), 1)
-
-        # Compute weiner filter and normalise each by its norm
-        w = self.wienerfft(recon, target, self.epsilon) 
-        # w = torch.roll(w, int(-(N-1)/2))     # roll filter to the center of the array
-        # w = w[:, int(N/2):int(N/2)+ P]
-        # plt.plot(w[0], color="blue")
-
-
-        # w = torch.roll(w, int(-(N-1)/2))     # roll filter to the center of the array
-        # w = torch.roll(w, -int((M+P)/2), )     # roll filter to the center of the array
-        
-        # w = w[:, int(N/2):int(N/2)+ P]
-        # w = w[:, (M-P) :]
-
-        # w = w[:, M-P:M]
-        w = w[:, :-(M-P)]
-        # w = torch.flip(w, dims=(0, 1))
-        # w = torch.roll(w, - int((P+1)/2))
-
-        # plt.plot(w[0], color="red", linestyle="--")
-        # plt.show() 
-        # print(torch.argmax(torch.abs(w[0])))
-
-        # w = w.T / torch.linalg.norm(w, dim=1)
-        w = w / self.norm(w, dim=1)
-        # w = w.T
-
+        # Normalise filter and store if prompted
+        w = (w.T / self.norm(w, dim=1)).T
         if self.store_filters: self.filters = w[:]
 
-        # Loss function
-        # print(w.shape)
-        # print(torch.linalg.xnorm(w))
-        # w = w / (torch.linalg.norm(w) / w.size(0))
-        # w = nn.functional.normalize(w, dim=1)
-        # for i in range(w.shape[0]):
-        #     print(torch.max(torch.abs(w[i])))
+        # Penalty function
+        self.T = self.penalty(torch.linspace(-1., 1., filter_size, requires_grad=True), self.std).to(recon.device)
+        T = self.T.repeat(recon.size(0), 1)
 
-        # print(w.shape)
-        # plt.contourf(T.detach().numpy(), vmin=-1, vmax=1)
-        # plt.show()
-
-        # plt.contourf(w.detach().numpy())#, vmin=-1, vmax=1)
-        # plt.show()
-
-        # plt.contourf((T-w).detach().numpy(), vmin=-1, vmax=1)
-        # plt.show()
-
-        # w  = nn.functional.normalize(w, dim=1)
-        # print(w.shape, ((torch.abs(w)).max(dim=1).values).shape)
-
-        # for i in range(0, w.shape[0]):
-        #     w[i] = w[i] / torch.max(torch.abs(w[i]), dim)
-        # print(w.shape, w.min(dim=1).values, w.max(dim=1).values)     
-        # print("w: ", w)   
-        # plt.plot(w[0].detach().numpy())
-        # plt.show()
-        # f = 0.5 * torch.linalg.norm(T - w, dim=1)#/torch.linalg.norm(w, dim=1) #+ 100*self.norm(v)
+        # Compute loss
         f = 0.5 * self.norm(T - w, dim=1)
-        # print(f.shape)
-        # f = 0.5 * torch.linalg.norm(T *  w, dim=1) / torch.linalg.norm( w, dim=1)
         f = f.sum()    
         if self.reduction == "mean":
             f = f / recon.size(0)
