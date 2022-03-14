@@ -14,7 +14,6 @@ class TV(nn.Module):
       torch.sum(torch.abs(x[:, :, :-1, :] - x[:, :, 1:, :])))
       return reg
 
-
 class KLD(nn.Module):
   def __init__(self):
     super(KLD, self).__init__()
@@ -22,102 +21,21 @@ class KLD(nn.Module):
   def forward(self, mu, sigma):
       """Kl Divergence """
       return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
-      
-# Combine losses into major AWLoss and split into derived classes      
-class AWLoss1D(nn.Module):
-    def __init__(self, alpha=0., epsilon=0., std=1e-4, reduction="sum", store_filters=False) :
-        super(AWLoss1D, self).__init__()
-        self.alpha = alpha
+
+class AWLoss(nn.Module):
+    def __init__(self, epsilon=0., std=1e-4, reduction="sum", store_filters=False) :
+        super(AWLoss, self).__init__()
         self.epsilon = epsilon
         self.std = std
         self.store_filters = store_filters
-        self.v_all = None
-        self.T_arr = None
+        self.filters = None
+        self.T = None
 
         if reduction=="mean" or reduction=="sum":
             self.reduction = reduction
         else:
-            raise ValueError
+            raise ValueError  
 
-    def make_toeplitz(self, a):
-        h = a.size(0)
-        A = torch.zeros((3*h-2, 2*h-1), device=a.device)
-        for i in range(2*h-1):
-            A[i:i+h, i] = a[:]  
-        A = A.to(a.device)
-        return A
-
-    def pad_edges_to_len(self, x, length, val=0):
-        total_pad = length - len(x)
-        pad_lef = floor(total_pad / 2)
-        pad_rig = total_pad - pad_lef
-        return nn.ConstantPad1d((pad_lef, pad_rig), val)(x)
-
-    def gaussian(self, xarr, a, std, mean):
-        return a*torch.exp(-(xarr - mean)**2 / (2*std**2))
-
-    def T(self, xarr, std=1.):
-        tarr = self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
-        # tarr = -tarr + torch.max(torch.abs(tarr))
-        tarr = tarr / torch.max(torch.abs(tarr))
-        return  tarr
-
-    def norm(self, A):
-        return torch.sqrt(torch.sum(A**2))
-    
-    def forward(self, recon, target):
-        """
-        Adaptive Weiner Loss Computation
-        Loss is based on reverse AWI, which makes use of a more efficient computational graph (see paper)
-        In reverse FWI, the filter v computed below is the filter that transforms  "target" into "recon"
-
-        """
-        assert recon.shape == target.shape
-        recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
-        # recon, target = torch.flip(recon, dims=(0,1)), torch.flip(target, dims=(0,1))
-
-        
-        self.T_arr = self.T(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
-        if self.store_filters: self.v_all = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.store_filters else None
-        
-        f = 0.
-        for i in range(recon.size(0)):
-            # Compute filter -- store if prompted
-            D = self.make_toeplitz(target[i])
-            D_t = D.T
-            v = D.T @ D
-            v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)
-            v = torch.inverse(v)
-            v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
-            
-            # Normalise filter and store
-            v = v / self.norm(v)
-            if self.store_filters: self.v_all[i] = v[:]
-
-            # Compute functional
-            f = f + 0.5 * self.norm(self.T_arr - v) #+ 100*self.norm(v)
-                
-        if self.reduction == "mean":
-            f = f / recon.size(0)
-            
-        return f
-      
-      
-class AWLoss2D(nn.Module):
-    def __init__(self, alpha=0., epsilon=0., std=1e-4, reduction="sum", store_filters=False):
-        super(AWLoss2D, self).__init__()
-        self.alpha = alpha
-        self.epsilon = epsilon
-        self.std = std
-        self.store_filters = store_filters
-        self.v_all = None
-        self.T_arr = None
-        
-        if reduction=="mean" or reduction=="sum":
-          self.reduction = reduction
-        else:
-          raise ValueError
-     
     def make_toeplitz(self, a):
         "Makes toeplitz matrix of a vector A"
         h = a.size(0)
@@ -125,8 +43,8 @@ class AWLoss2D(nn.Module):
         for i in range(2*h-1):
             A[i:i+h, i] = a[:]  
         A = A.to(a.device)
-        return A  
-    
+        return A
+
     def make_doubly_block(self, X):
         """Makes Doubly Blocked Toeplitz of a matrix X [r, c]"""
         r_block = 3 * X.shape[1] -2                       # each row will have a toeplitz matrix of rowsize 3*X.shape[1] - 2
@@ -142,21 +60,31 @@ class AWLoss2D(nn.Module):
                 ridx = (i+j)*r_block
                 cidx = j*c_block
                 Z[ridx:ridx+r_block, cidx:cidx+c_block] = row_toeplitz[:, :]
+        return Z  
 
-        return Z    
-    
-    
+    def pad_edges_to_len(self, x, length, val=0):
+        total_pad = length - len(x)
+        pad_lef = floor(total_pad / 2)
+        pad_rig = total_pad - pad_lef
+        return nn.ConstantPad1d((pad_lef, pad_rig), val)(x)
+
     def pad_edges_to_shape(self, x, shape, val=0):
         pad_top, pad_lef = floor((shape[0] - x.shape[0])/2), floor((shape[1] - x.shape[1])/2)
         pad_bot, pad_rig = shape[0] - x.shape[0] - pad_top, shape[1] - x.shape[1] - pad_lef
         return nn.ConstantPad2d((pad_lef, pad_rig, pad_top, pad_bot), val)(x)
-    
-    
-    def gauss2d(self, x=0, y=0, mx=0, my=0, sx=1., sy=1., a=100.):
-        return a / (2. * np.pi * sx * sy) * torch.exp(-((x - mx)**2. / (2. * sx**2.) + (y - my)**2. / (2. * sy**2.)))
-    
 
-    def T2D(self, shape, stdx=1., stdy=1., device="cpu"):
+    def gaussian(self, xarr, a, std, mean, dim=1):
+        return a*torch.exp(-(xarr - mean)**2 / (2*std**2))
+
+    def gauss2d(self, x=0, y=0, mx=0, my=0, sx=1., sy=1., a=1.):
+        return a / (2. * np.pi * sx * sy) * torch.exp(-((x - mx)**2. / (2. * sx**2.) + (y - my)**2. / (2. * sy**2.)))
+
+    def penalty(self, xarr, std=1.):
+        tarr = self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
+        tarr = tarr / torch.max(torch.abs(tarr))
+        return  tarr
+
+    def penalty2d(self, shape, stdx=1., stdy=1., device="cpu"):
         xarr = torch.linspace(-10., 10., shape[0], requires_grad=True, device=device)
         yarr = torch.linspace(-10., 10., shape[1], requires_grad=True, device=device)
         xx, yy = torch.meshgrid(xarr, yarr)
@@ -165,13 +93,58 @@ class AWLoss2D(nn.Module):
         dispx, dispy = (len(xarr) % 2 - 1) / 2, (len(yarr) % 2 - 1) / 2
         dx, dy = (xarr[-1] - xarr[0]) / (len(xarr) - 1), (yarr[-1] - yarr[0]) / (len(yarr) - 1)
 
-        tarr = self.gauss2d(xx, yy, mx=dx*dispx, my=dy*dispy, sx=stdx, sy=stdy, a=1.)
-        # tarr = -tarr + torch.max(torch.abs(tarr))
+        tarr = self.gauss2d(xx, yy, mx=dx*dispx, my=dy*dispy, sx=stdx, sy=stdy, a=1.0)
         tarr = tarr / torch.max(torch.abs(tarr)) # normalise amplitude of T
         return tarr.to(device)
+        
+    def norm(self, A, dim=()):
+        return torch.sqrt(torch.sum(A**2, dim=dim))
+
+class AWLoss1D(AWLoss):
+    def __init__(self, *args, **kwargs) :
+        super(AWLoss1D, self).__init__(*args, **kwargs)
     
-    def norm(self, A):
-        return torch.sqrt(torch.sum((A)**2))
+    def forward(self, recon, target):
+        """
+        Adaptive Weiner Loss Computation
+        Loss is based on reverse AWI, which makes use of a more efficient computational graph (see paper)
+        In reverse FWI, the filter v computed below is the filter that transforms  "target" into "recon"
+
+        """
+        assert recon.shape == target.shape
+        recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
+        # recon, target = torch.flip(recon, dims=(0,1)), torch.flip(target, dims=(0,1))
+
+        
+        self.T = self.penalty(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
+        if self.store_filters: self.filters = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.store_filters else None
+        
+        f = 0.
+        for i in range(recon.size(0)):
+            # Compute filter -- store if prompted
+            D = self.make_toeplitz(target[i])
+            D_t = D.T
+            v = D.T @ D
+            v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)
+            v = torch.inverse(v)
+            v = v @ (D_t @ self.pad_edges_to_len(recon[i], D_t.shape[1]))
+            
+            # Normalise filter and store
+            v = v / self.norm(v)
+            if self.store_filters: self.filters[i] = v[:]
+
+            # Compute functional
+            f = f + 0.5 * self.norm(self.T - v) #+ 100*self.norm(v)
+                
+        if self.reduction == "mean":
+            f = f / recon.size(0)
+            
+        return f
+      
+      
+class AWLoss2D(AWLoss):
+    def __init__(self, *args, **kwargs) :
+        super(AWLoss2D, self).__init__(*args, **kwargs)
       
     
     def forward(self, recon, target):
@@ -202,15 +175,15 @@ class AWLoss2D(nn.Module):
         to the identity kernel, and penalise otherwise.
         The value std controls the standard deviation (the spread) of T in both directions and the value a its amplitude
       
-        This function applies the reverse AWI formulation
+        This function applies the reverse AWI formulation (see paper)
         
         """
         assert target.shape == recon.shape
         bs, nc = recon.size(0), recon.size(1)
 
         filter_shape = (2*recon.shape[2] - 1, 2*recon.shape[3] - 1)
-        self.T_arr = self.T2D(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
-        if self.store_filters: self.v_all = torch.zeros(bs, filter_shape[0], filter_shape[1]).to(recon.device) # one filter per image 
+        self.T = self.penalty2d(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
+        if self.store_filters: self.filters = torch.zeros(bs, filter_shape[0], filter_shape[1]).to(recon.device) # one filter per image 
 
         ## COULD BE VECTORISED? This loop treats every image in batch and every channel of each image as a "separate" sample
         f = 0.
@@ -223,13 +196,14 @@ class AWLoss2D(nn.Module):
             v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)# stabilise diagonals for matrix inversion
             v = torch.inverse(v) ## COULD BE OPTIMISED?
             v = v @ (Z_t @ self.pad_edges_to_shape(recon[i][j], (3*recon.shape[2] - 2, 3*recon.shape[3] - 2)).flatten(start_dim=0))
-            if self.store_filters: self.v_all[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
+            
+            # Normalise filter and store
+            v = v / self.norm(v)
+            if self.store_filters: self.filters[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
             
             # Compute functional
-            v = v / self.norm(v)
-            f = f + 0.5 * self.norm(self.T_arr.flatten() - v) #/ self.norm(v)
+            f = f + 0.5 * self.norm(self.T.flatten() - v) #/ self.norm(v)
             
-        
         if self.reduction=="mean":
           f = f / (bs * nc)
           
@@ -237,30 +211,10 @@ class AWLoss2D(nn.Module):
 
 
 
-class AWLoss1DFFT(nn.Module):
-    def __init__(self, alpha=0., epsilon=3e-15, std=1e-4, reduction="sum", store_filters=False, filter_scale=2) :
-        super(AWLoss1DFFT, self).__init__()
-        self.alpha = alpha
-        self.epsilon = epsilon
-        self.std = std
-        self.store_filters = store_filters
+class AWLoss1DFFT(AWLoss):
+    def __init__(self, filter_scale=2, *args, **kwargs) :
+        super(AWLoss1DFFT, self).__init__(*args, **kwargs)
         self.filter_scale = filter_scale
-        self.v_all = None
-        self.T_arr = None
-
-        if reduction=="mean" or reduction=="sum":
-            self.reduction = reduction
-        else:
-            raise ValueError
-
-    def gaussian(self, xarr, a, std, mean):
-        return a*torch.exp(-(xarr - mean)**2 / (2*std**2))
-
-    def penalty(self, xarr, std=1.):
-        tarr = self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
-        # tarr = -tarr + torch.max(torch.abs(tarr))
-        tarr = tarr / torch.max(torch.abs(tarr))
-        return  tarr
 
     def wiener_config(self, input, scale_factor=2):
         """
@@ -297,10 +251,11 @@ class AWLoss1DFFT(nn.Module):
         # print(w.shape)
         return w
 
-    def norm(self, A, dim=0):
-        return torch.sqrt(torch.sum(A**2, dim=dim))
 
     def forward(self, recon, target):
+        """
+        Implements AWLoss using 1D filters and flattened images in the frequency domain
+        """
         assert recon.shape == target.shape
         
         # Flatten recon and target for 1D processing
@@ -322,11 +277,11 @@ class AWLoss1DFFT(nn.Module):
         # plt.show()
 
         # Store penalty and filters for stats and debugging
-        if self.store_filters: self.v_all = torch.zeros(recon.shape[0], P).to(recon.device) if self.store_filters else None
+        if self.store_filters: self.filters = torch.zeros(recon.shape[0], P).to(recon.device) if self.store_filters else None
 
 
-        self.T_arr = self.penalty(torch.linspace(-1., 1., P, requires_grad=True), self.std).to(recon.device)
-        T = self.T_arr.repeat(recon.size(0), 1)
+        self.T = self.penalty(torch.linspace(-1., 1., P, requires_grad=True), self.std).to(recon.device)
+        T = self.T.repeat(recon.size(0), 1)
 
         # Compute weiner filter and normalise each by its norm
         w = self.wienerfft(recon, target, self.epsilon) 
@@ -354,7 +309,7 @@ class AWLoss1DFFT(nn.Module):
         w = w / self.norm(w, dim=1)
         # w = w.T
 
-        if self.store_filters: self.v_all = w[:]
+        if self.store_filters: self.filters = w[:]
 
         # Loss function
         # print(w.shape)
