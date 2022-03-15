@@ -263,19 +263,19 @@ class AWLoss1DFFT(AWLoss):
 
         # Compute weiner filter
         epsilon = self.epsilon if epsilon is None else epsilon
-        # w = self.wienerfft(recon, target, epsilon) # forward AWI
-        w = self.wienerfft(target, recon, epsilon) # reverse AWI
+        # v = self.wienerfft(recon, target, epsilon) # forward AWI
+        v = self.wienerfft(target, recon, epsilon) # reverse AWI
 
         # Normalise filter and store if prompted
-        w = (w.T / self.norm(w, dim=1)).T
-        if self.store_filters: self.filters = w[:]
+        v = (v.T / self.norm(v, dim=1)).T
+        if self.store_filters: self.filters = v[:]
 
         # Penalty function
         self.T = self.penalty(torch.linspace(-1., 1., filter_size, requires_grad=True), self.std).to(recon.device)
         T = self.T.repeat(recon.size(0), 1)
 
         # Compute loss
-        f = 0.5 * self.norm(T - w, dim=1)
+        f = 0.5 * self.norm(T - v, dim=1)
         f = f.sum()    
         if self.reduction == "mean":
             f = f / recon.size(0)
@@ -330,23 +330,22 @@ class AWLoss2DFFT(AWLoss):
 
         # Compute weiner filter for each channel of each sample in batch
         epsilon = self.epsilon if epsilon is None else epsilon
-        w = self.wienerfft2D(target, recon, epsilon) # reverse AWI filter
+        v = self.wienerfft2D(target, recon, epsilon) # reverse AWI filter
 
-        print("w: ", w.shape)
+        print("v: ", v.shape)
 
         # Normalise filter and store if prompted
-        w = (w.T / self.norm(w, dim=1)).T
-        if self.store_filters: self.filters = w[:]
+        v = (v.T / self.norm(v, dim=1)).T
+        if self.store_filters: self.filters = v[:]
 
         # Penalty function
         self.T = self.penalty(torch.linspace(-1., 1., filter_size, requires_grad=True), self.std).to(recon.device)
         T = self.T.repeat(recon.size(0), 1)
 
         # Compute loss
-        f = 0.5 * self.norm(T - w, dim=1)
+        f = 0.5 * self.norm(T - v, dim=1)
         f = f.sum()    
         if self.reduction == "mean":
             f = f / recon.size(0)
-
 
         return f
