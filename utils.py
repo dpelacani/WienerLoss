@@ -66,7 +66,7 @@ def validate(model, train_loader, criterion, device="cpu"):
                 recon, mu, sigma = recon 
 
             # Evaluate losses
-            loss =  criterion(recon, X)
+            loss  = criterion(recon, X)
             
             total_loss += loss.sum()/ len(train_loader)
     return total_loss
@@ -85,13 +85,14 @@ def train(model, train_loader, optimizer, criterion, device="cpu"):
 
         # Reconstructed images from forward pass
         recon = model(X)
+        
         kld_loss = torch.tensor([0.]).to(device)
         if isinstance(recon, tuple):
             recon, mu, sigma = recon
             kld_loss = kld(mu, sigma)
 
         # Evaluate losses
-        loss =  criterion(recon, X)
+        loss  = criterion(recon, X)
 
         # Combining losses appropriately, backprop and take step
         combined_loss = loss.sum() + kld_loss.sum() 
