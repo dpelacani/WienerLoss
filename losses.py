@@ -193,7 +193,7 @@ class AWLoss2D(AWLoss):
 
         filter_shape = (2*recon.shape[2] - 1, 2*recon.shape[3] - 1)
         self.T = self.penalty2d(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
-        if self.store_filters: self.filters = torch.zeros(bs, filter_shape[0], filter_shape[1]).to(recon.device) # one filter per image 
+        if self.store_filters: self.filters = torch.zeros(bs, nc, filter_shape[0], filter_shape[1]).to(recon.device) # one filter per image 
 
         ## COULD BE VECTORISED? This loop treats every image in batch and every channel of each image as a "separate" sample
         f = 0.
@@ -209,7 +209,7 @@ class AWLoss2D(AWLoss):
             
             # Normalise filter and store if prompted
             v = v / self.norm(v)
-            if self.store_filters: self.filters[i] += v[:].view(filter_shape) / nc # returned filter is averaged in channel dimension, note that this average does not affect the functional computation
+            if self.store_filters: self.filters[i][j] = v[:].view(filter_shape) 
             
             # Compute functional
             f = f + 0.5 * self.norm(self.T.flatten() - v) #/ self.norm(v)
@@ -218,7 +218,6 @@ class AWLoss2D(AWLoss):
           f = f / (bs * nc)
           
         return f
-
 
 
 class AWLoss1DFFT(AWLoss):
@@ -283,6 +282,7 @@ class AWLoss1DFFT(AWLoss):
 
         return f
 
+
 class AWLoss2DFFT(AWLoss):
     def __init__(self, filter_scale=2, *args, **kwargs) :
         super(AWLoss2DFFT, self).__init__(*args, **kwargs)
@@ -298,8 +298,8 @@ class AWLoss2DFFT(AWLoss):
         Fccorr = torch.fft.fftn(torch.flip(x, (2,3)), dim=(2,3))*torch.fft.fftn(y, dim=(2,3)) # cross-correlation of x with y 
         Facorr = torch.fft.fftn(torch.flip(x, (2,3)), dim=(2,3))*torch.fft.fftn(x, dim=(2,3)) # auto-correlation of x
         Fdconv = Fccorr/(Facorr+torch.abs(Facorr).max()*prwh) # deconvolution of Fccorr by Facorr
-        rolled = torch.fft.irfftn(Fdconv, x.shape) # inverse Fourier transform
-        return torch.roll(rolled, (int(-x.shape[1]/2-1), int(-x.shape[2]/2-1)), dims= (1,2)) 
+        rolled = torch.fft.irfftn(Fdconv, x.shape[2:], dim=(2,3)) # inverse Fourier transform
+        return torch.roll(rolled, (int(-x.shape[2]/2-1), int(-x.shape[3]/2-1)), dims= (2,3)) 
 
 
     def forward(self, recon, target, epsilon=None):
@@ -317,30 +317,24 @@ class AWLoss2DFFT(AWLoss):
             filter_shape[0] = filter_shape[0] - 1
         if filter_shape[1] % 2 == 0:
             filter_shape[1] = filter_shape[0] - 1
-        self.filters = torch.zeros(bs, filter_shape[0], filter_shape[1]).to(recon.device) if self.store_filters else None
+        self.filters = torch.zeros(bs, nc, filter_shape[0], filter_shape[1]).to(recon.device) if self.store_filters else None
         
 
         # Apply padding for FFT convolution
         recon = self.pad_edges_to_shape(recon, filter_shape)
         target = self.pad_edges_to_shape(target, filter_shape)
 
-        print(filter_shape)
-        print(recon.shape)
-        print(target.shape)
-
         # Compute weiner filter for each channel of each sample in batch
         epsilon = self.epsilon if epsilon is None else epsilon
         v = self.wienerfft2D(target, recon, epsilon) # reverse AWI filter
 
-        print("v: ", v.shape)
-
         # Normalise filter and store if prompted
-        v = (v.T / self.norm(v, dim=1)).T
-        if self.store_filters: self.filters = v[:]
+        v = nn.functional.normalize(v, dim=(-2, -1))
+        if self.store_filters: self.filters = v[:]     
 
         # Penalty function
-        self.T = self.penalty(torch.linspace(-1., 1., filter_size, requires_grad=True), self.std).to(recon.device)
-        T = self.T.repeat(recon.size(0), 1)
+        self.T = self.penalty2d(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
+        T = self.T.repeat(recon.size(0), 1, 1 ,1)
 
         # Compute loss
         f = 0.5 * self.norm(T - v, dim=1)
