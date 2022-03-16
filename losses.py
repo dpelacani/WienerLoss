@@ -1,8 +1,10 @@
 from math import floor
+from turtle import forward
 import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
+import abc
 
 class TV(nn.Module):
   def __init__(self):
@@ -27,15 +29,19 @@ class AWLoss(nn.Module):
         super(AWLoss, self).__init__()
         self.epsilon = epsilon
         self.std = std
-        self.store_filters = store_filters
         self.filters = None
         self.T = None
         self.current_epoch = 0
 
+        if store_filters in ["norm", "unorm"] or store_filters is False:
+            self.store_filters=store_filters
+        else:
+            raise ValueError("store_filters must be 'norm', 'unorm' or False, but found {}".format(store_filters))
+
         if reduction=="mean" or reduction=="sum":
             self.reduction = reduction
         else:
-            raise ValueError
+            raise ValueError("reduction must be 'mean' or 'sum', but found {}".format(reduction))
 
     def update_epoch(self):
         self.epoch = self.current_epoch + 1 
@@ -110,6 +116,10 @@ class AWLoss(nn.Module):
     def norm(self, A, dim=()):
         return torch.sqrt(torch.sum(A**2, dim=dim))
 
+    @abc.abstractmethod
+    def forward(self):
+        return
+
 class AWLoss1D(AWLoss):
     def __init__(self, *args, **kwargs) :
         super(AWLoss1D, self).__init__(*args, **kwargs)
@@ -140,8 +150,9 @@ class AWLoss1D(AWLoss):
             v = v @ (D_t @ self.pad_edges_to_len(recon[i].unsqueeze(0), D_t.shape[1])[0])
             
             # Normalise filter and store if prompted
+            if self.store_filters=="unorm": self.filters[i] = v[:]
             v = v / self.norm(v)
-            if self.store_filters: self.filters[i] = v[:]
+            if self.store_filters=="norm": self.filters[i] = v[:]
 
             # Compute functional
             f = f + 0.5 * self.norm(self.T - v) #+ 100*self.norm(v)
@@ -208,8 +219,9 @@ class AWLoss2D(AWLoss):
             v = v @ (Z_t @ self.pad_edges_to_shape(recon[i][j].unsqueeze(0).unsqueeze(0), (3*recon.shape[2] - 2, 3*recon.shape[3] - 2)).flatten(start_dim=0))
             
             # Normalise filter and store if prompted
+            if self.store_filters=="unorm": self.filters[i][j] = v[:].view(filter_shape) 
             v = v / self.norm(v)
-            if self.store_filters: self.filters[i][j] = v[:].view(filter_shape) 
+            if self.store_filters=="norm": self.filters[i][j] = v[:].view(filter_shape) 
             
             # Compute functional
             f = f + 0.5 * self.norm(self.T.flatten() - v) #/ self.norm(v)
@@ -266,8 +278,9 @@ class AWLoss1DFFT(AWLoss):
         v = self.wienerfft(target, recon, epsilon) # reverse AWI
 
         # Normalise filter and store if prompted
+        if self.store_filters=="unorm": self.filters = v[:]
         v = (v.T / self.norm(v, dim=1)).T
-        if self.store_filters: self.filters = v[:]
+        if self.store_filters=="norm": self.filters = v[:]
 
         # Penalty function
         self.T = self.penalty(torch.linspace(-1., 1., filter_size, requires_grad=True), self.std).to(recon.device)
@@ -329,8 +342,9 @@ class AWLoss2DFFT(AWLoss):
         v = self.wienerfft2D(target, recon, epsilon) # reverse AWI filter
 
         # Normalise filter and store if prompted
+        if self.store_filters=="unorm": self.filters = v[:]   
         v = nn.functional.normalize(v, dim=(-2, -1))
-        if self.store_filters: self.filters = v[:]     
+        if self.store_filters=="norm": self.filters = v[:]     
 
         # Penalty function
         self.T = self.penalty2d(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
@@ -341,5 +355,7 @@ class AWLoss2DFFT(AWLoss):
         f = f.sum()    
         if self.reduction == "mean":
             f = f / recon.size(0)
+
+        
 
         return f
