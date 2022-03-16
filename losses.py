@@ -279,7 +279,7 @@ class AWLoss1DFFT(AWLoss):
 
         # Normalise filter and store if prompted
         if self.store_filters=="unorm": self.filters = v[:]
-        v = (v.T / self.norm(v, dim=1)).T
+        v = v / self.norm(v, dim=1).unsqueeze(-1).expand_as(v)
         if self.store_filters=="norm": self.filters = v[:]
 
         # Penalty function
@@ -287,8 +287,7 @@ class AWLoss1DFFT(AWLoss):
         T = self.T.repeat(recon.size(0), 1)
 
         # Compute loss
-        f = 0.5 * self.norm(T - v, dim=1)
-        f = f.sum()    
+        f = 0.5 * self.norm(T - v)  
         if self.reduction == "mean":
             f = f / recon.size(0)
 
@@ -343,19 +342,16 @@ class AWLoss2DFFT(AWLoss):
 
         # Normalise filter and store if prompted
         if self.store_filters=="unorm": self.filters = v[:]   
-        v = nn.functional.normalize(v, dim=(-2, -1))
+        v = v / self.norm(v, dim=(-2,-1)).unsqueeze(-1).unsqueeze(-1).expand_as(v)
         if self.store_filters=="norm": self.filters = v[:]     
 
         # Penalty function
         self.T = self.penalty2d(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
-        T = self.T.repeat(recon.size(0), 1, 1 ,1)
+        T = self.T.repeat(recon.size(0), recon.size(1), 1 ,1)
 
         # Compute loss
-        f = 0.5 * self.norm(T - v, dim=1)
-        f = f.sum()    
+        f = 0.5 * self.norm(T - v)
         if self.reduction == "mean":
             f = f / recon.size(0)
-
-        
 
         return f
