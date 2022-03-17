@@ -8,3 +8,4 @@ wandb/
 .ipynb_checkpoints/
 examples/data/
 examples/autoencoder/.ipynb_checkpoints
+.DS_Store
