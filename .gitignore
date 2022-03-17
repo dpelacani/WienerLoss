@@ -8,4 +8,7 @@ wandb/
 .ipynb_checkpoints/
 examples/data/
 examples/autoencoder/.ipynb_checkpoints
-.DS_Store
+performance/.ipynb_checkpoints
+tests/.ipynb_checkpoints
+tests/AWLoss.code-workspace
+.ipynb_checkpoints
