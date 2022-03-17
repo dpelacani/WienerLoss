@@ -116,9 +116,8 @@ class AWLoss(nn.Module):
     def norm(self, A, dim=()):
         return torch.sqrt(torch.sum(A**2, dim=dim))
 
-    @abc.abstractmethod
-    def forward(self):
-        return
+    def forward(self, *args):
+        raise NotImplementedError ("Please use derived classes to implement AWLoss")
 
 class AWLoss1D(AWLoss):
     def __init__(self, *args, **kwargs) :
