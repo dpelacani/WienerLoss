@@ -6,3 +6,5 @@ wandb/
 .vscode/
 .DS_Store
 .ipynb_checkpoints/
+examples/data/
+examples/autoencoder/.ipynb_checkpoints
