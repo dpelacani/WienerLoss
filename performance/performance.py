@@ -7,6 +7,8 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import platform
 import cpuinfo
+import itertools
+
 
 from losses import *
 from utils import set_device, set_seed
@@ -18,9 +20,14 @@ def plot_convergence(times, n_all, labels, xlabel, ylabel, figtitle=None):
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     if figtitle is not None:
         fig.suptitle(figtitle, fontsize=16)
-    
+
+    marker = itertools.cycle((',', '+', '.', 'o', '*')) 
+
     for i in range(len(times)):
-        ax.loglog(n_all, times[i], label=labels[i])
+        ax.plot(n_all, times[i], label=labels[i], marker=next(marker))
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
     ax.grid()
     ax.legend()
     ax.set_xlabel(xlabel)
@@ -50,9 +57,9 @@ if __name__ == "__main__":
     n_all = [2**i for i in range(1, 6)]
     for n in n_all:
         print(" Processing image size %g"%n)
-
+        nc = 1
         # Data for profiling
-        X = torch.randn([1, 3, n, n]).to(device)
+        X = torch.randn([1, nc, n, n]).to(device)
         target = torch.randn_like(X).to(device)
         
         # Profiling losses
@@ -73,6 +80,6 @@ if __name__ == "__main__":
         envname = envname + " " + str(platform.platform())
 
     # Convergence Plot
-    figtitle = "{}".format(envname + "\n Image size $3 x n x n$")
+    figtitle = "{}".format(envname + "\n Image size ${} x n x n$".format(nc))
     plot_convergence(times, n_all, names, xlabel=r"$n$", ylabel="Time (s)", figtitle=figtitle)
 
