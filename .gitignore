@@ -3,3 +3,6 @@ notebooks/cifar10_example/cifar-10-batches-py/
 images/
 notebooks/cifar10_example/cifar-10-python.tar.gz
 wandb/
+.vscode/
+.DS_Store
+.ipynb_checkpoints/
