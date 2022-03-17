@@ -286,7 +286,8 @@ class AWLoss1DFFT(AWLoss):
         T = self.T.repeat(recon.size(0), 1)
 
         # Compute loss
-        f = 0.5 * self.norm(T - v)  
+        f = 0.5 * self.norm(T - v, dim=1)
+        f.sum()  
         if self.reduction == "mean":
             f = f / recon.size(0)
 
@@ -349,7 +350,8 @@ class AWLoss2DFFT(AWLoss):
         T = self.T.repeat(recon.size(0), recon.size(1), 1 ,1)
 
         # Compute loss
-        f = 0.5 * self.norm(T - v)
+        f = 0.5 * self.norm(T - v, dim=(-2,-1))
+        f.sum()
         if self.reduction == "mean":
             f = f / recon.size(0)
 
