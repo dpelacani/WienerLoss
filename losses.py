@@ -287,10 +287,9 @@ class AWLoss1DFFT(AWLoss):
 
         # Compute loss
         f = 0.5 * self.norm(T - v, dim=1)
-        f.sum()  
+        f = f.sum()  
         if self.reduction == "mean":
             f = f / recon.size(0)
-
 
         return f
 
@@ -303,7 +302,7 @@ class AWLoss2DFFT(AWLoss):
     def wienerfft2D(self, x, y, prwh=1e-9):
         """
         George Strong (geowstrong@gmail.com)
-        calculates the optimal least squares convolutional Wiener filter that 
+        calculates the optimal least squares 2D convolutional Wiener filter that 
         transforms 2D signal x into 2D signal y
         """
         assert x.shape == y.shape, "signals x and y must be the same shape"
@@ -328,7 +327,7 @@ class AWLoss2DFFT(AWLoss):
         if filter_shape[0] % 2 == 0:
             filter_shape[0] = filter_shape[0] - 1
         if filter_shape[1] % 2 == 0:
-            filter_shape[1] = filter_shape[0] - 1
+            filter_shape[1] = filter_shape[1] - 1
         self.filters = torch.zeros(bs, nc, filter_shape[0], filter_shape[1]).to(recon.device) if self.store_filters else None
         
 
@@ -351,8 +350,9 @@ class AWLoss2DFFT(AWLoss):
 
         # Compute loss
         f = 0.5 * self.norm(T - v, dim=(-2,-1))
-        f.sum()
+        f = f.sum()
         if self.reduction == "mean":
             f = f / recon.size(0)
-
         return f
+
+
