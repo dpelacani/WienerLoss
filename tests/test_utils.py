@@ -27,6 +27,13 @@ def get_middle_arr2d(img, shape):
     y_start = int(img.shape[1]/2) - int(y_len/2)
     return img[x_start:x_start+x_len, y_start:y_start+y_len]
 
+def get_middle_arr3d(img, shape):
+    c_len, x_len, y_len = shape[0], shape[1], shape[2]
+    c_start = int(img.shape[0]/2) - int(c_len/2)
+    x_start = int(img.shape[1]/2) - int(x_len/2)
+    y_start = int(img.shape[2]/2) - int(y_len/2)
+    return img[c_start:c_start+c_len, x_start:x_start+x_len, y_start:y_start+y_len]
+
     
 def circle_img(shape, lag=(0, 0), fill_val=0, circle_val=1., radius=1.):
     im = torch.zeros(shape) + fill_val
@@ -79,20 +86,19 @@ def test_filter_img(input, target, awi_loss, figtitle=None, cmap=None, vmin=-1, 
 
     f = awi_loss(target.unsqueeze(0), input.unsqueeze(0))
     v, T = awi_loss.filters[0], awi_loss.T
-
-    # Filter dimension (1D = 0 or 2D = 2)
-    nd = len(v.shape[1:])
     
     # Reconstruct target by convoling input with filter
-    if nd == 0:
+    if awi_loss.filter_dim == 1:
         D = signal.convolve(input.flatten(start_dim=0), v, mode="full")
         D = get_middle_arr(D, nc*h*w).reshape(nc, h, w)
-    elif nd == 2:
+    elif awi_loss.filter_dim == 2:
         D = np.zeros(input.shape) - 1
         for i in range(nc): 
             D[i]= get_middle_arr2d(signal.convolve2d(input[i], v[i]), (h, w))
-    else:
-        raise Exception(" Only supporting filters of dimensions 1 and 2, but found %g dimensions"%nd)
+    elif awi_loss.filter_dim == 3:
+        D = signal.convolve(input, v)
+        D = get_middle_arr3d(D, (nc, h, w))
+
 
 
     # Transpose for plotting
@@ -123,7 +129,7 @@ def test_filter_img(input, target, awi_loss, figtitle=None, cmap=None, vmin=-1, 
 
 
     # Plot filter and penalty functions
-    if nd == 0:
+    if awi_loss.filter_dim == 1:
         xarr = torch.linspace(-len(v.flatten()), len(v.flatten()),  len(v.flatten())).float()
         
         ax[4].plot(xarr, v.flatten())
@@ -138,7 +144,7 @@ def test_filter_img(input, target, awi_loss, figtitle=None, cmap=None, vmin=-1, 
         ax[5].set_xlabel("Lag")
         ax[5].set_ylim(-0.1, 1.1)
         
-    elif nd == 2:
+    elif awi_loss.filter_dim == 2:
         xarr = np.linspace(-v[0].shape[0], v[0].shape[0], v[0].shape[0])
         yarr = np.linspace(-v[0].shape[1], v[0].shape[1], v[0].shape[1])
         xx, yy = np.meshgrid(xarr, yarr)
@@ -160,6 +166,21 @@ def test_filter_img(input, target, awi_loss, figtitle=None, cmap=None, vmin=-1, 
         ax[5].set_title("penalty function, min lag  ({:d}, {:d}) ".format(peaky, peakx))
         ax[5].set_xlabel("Lag X")
         ax[5].set_ylabel("Lag Y")
+
+    if awi_loss.filter_dim == 3:
+        xarr = torch.linspace(-len(v.flatten()), len(v.flatten()),  len(v.flatten())).float()
+        
+        ax[4].plot(xarr, v.flatten())
+        peak = int(xarr[torch.argmax(torch.abs(v.flatten())).item()])
+        ax[4].set_title("Filter / len=%.3f/ lag peak=%g / loss=%.3f"%(v.sum(), peak, f))
+        ax[4].set_xlabel("Lag")
+        # ax[4].set_ylim(None, 1.1)
+        
+        ax[5].plot(xarr, T.flatten().detach())
+        peak = int(xarr[torch.argmax(T).item()])
+        ax[5].set_title("penalty function, min lag %g "%peak)
+        ax[5].set_xlabel("Lag")
+        ax[5].set_ylim(-0.1, 1.1)
         
     plt.show()
 

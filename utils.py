@@ -64,7 +64,8 @@ def validate(model, train_loader, criterion, device="cpu"):
             # Reconstructed images from forward pass
             recon = model(X)
             if isinstance(recon, tuple): # if model returns more than one variable
-                recon, mu, sigma = recon 
+                recon = recon[0]
+                # recon, mu, sigma = recon 
 
             # Evaluate losses
             loss  = criterion(recon, X)
@@ -89,8 +90,9 @@ def train(model, train_loader, optimizer, criterion, device="cpu"):
         
         kld_loss = torch.tensor([0.]).to(device)
         if isinstance(recon, tuple):
-            recon, mu, sigma = recon
-            kld_loss = kld(mu, sigma)
+            recon = recon[0]
+            # recon, mu, sigma = recon
+            # kld_loss = kld(mu, sigma)
 
         # Evaluate losses
         loss  = criterion(recon, X)
@@ -149,12 +151,16 @@ def train_model(model, optimizer, train_loader, loss, nepochs=150, log_frequency
                 if gradflow: plot_grad_flow(model.named_parameters())
 
                 # Input, reconstructed, difference, filters and penalty
-                if len(v.shape) == 0:
+                if "AWLoss" in str(loss): 
+                    if loss.filter_dim==1:
+                        plot_train_sample1d(X, recon, v, T)
+                    elif loss.filter_dim==2:
+                         plot_train_sample2d(X, recon, v, np.repeat(np.expand_dims(T, 0), v.shape[0], 0))
+                    elif loss.filter_dim==3:
+                        plot_train_sample3d(X, recon, v, T)
+                else:
+                    # for losses that don't return filters
                     plot_train_sample(X, recon)
-                elif len(v.shape) == 1:
-                    plot_train_sample1d(X, recon, v, T)
-                elif len(v.shape) == 3:
-                    plot_train_sample2d(X, recon, v, np.repeat(np.expand_dims(T, 0), v.shape[0], 0))
 
                 # Plot losses
                 fig, axs = plt.subplots(1,3, figsize=(7, 3))
@@ -223,15 +229,44 @@ def plot_train_sample2d(X, recon, v, T):
     axs[0, 2].imshow(X- recon, cmap="gray", vmin=-0.5, vmax=0.5)
     axs[0, 2].set_title("diff")
 
-    axs[1, 0].imshow(T.transpose(1,2,0))
-    axs[1, 0].set_title("T-2D")
+    try:
+        axs[1, 0].imshow(T.transpose(1,2,0))
+        axs[1, 0].set_title("T-2D")
 
-    axs[1, 1].imshow(v.transpose(1,2,0))
-    axs[1, 1].set_title("v-2D")
+        axs[1, 1].imshow(v.transpose(1,2,0))
+        axs[1, 1].set_title("v-2D")
+
+        axs[1, 2].plot((T.flatten() - v.flatten()))
+        axs[1, 2].set_ylim(None, 1.1)
+        axs[1, 2].set_title("T2D - v2D")
+    except:
+        pass
+    plt.show()
+    return None
+
+def plot_train_sample3d(X, recon, v, T):
+    X, recon = X[0].transpose(1,2,0), recon[0].transpose(1,2,0)
+
+    fig, axs = plt.subplots(2,3)#, figsize=(15,15))
+    axs[0, 0].imshow(recon, cmap="gray", vmin=0, vmax=1.)
+    axs[0, 0].set_title("recon")
+
+    axs[0, 1].imshow(X, cmap="gray", vmin=0, vmax=1.)
+    axs[0, 1].set_title("orig")
+
+    axs[0, 2].imshow(X- recon, cmap="gray", vmin=-0.5, vmax=0.5)
+    axs[0, 2].set_title("diff")
+
+    axs[1, 0].plot(T.flatten())
+    axs[1, 0].set_title("T flattened")
+
+    axs[1, 1].plot(v.flatten())
+    axs[1, 1].set_title("v flattened")
 
     axs[1, 2].plot((T.flatten() - v.flatten()))
     axs[1, 2].set_ylim(None, 1.1)
-    axs[1, 2].set_title("T2D - v2D")
+    axs[1, 2].set_title("T - v")
+
     plt.show()
     return None
 

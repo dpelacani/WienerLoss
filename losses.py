@@ -5,6 +5,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import abc
+from scipy.stats import multivariate_normal
 
 class TV(nn.Module):
   def __init__(self):
@@ -25,14 +26,13 @@ class KLD(nn.Module):
       return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
 
 class AWLoss(nn.Module):
-    def __init__(self, epsilon=0., std=1e-4, reduction="sum", store_filters=False) :
+    def __init__(self, epsilon=0., std=1e-4, reduction="sum", method="fft", filter_dim=2, filter_scale=2, store_filters=False) :
         super(AWLoss, self).__init__()
         self.epsilon = epsilon
         self.std = std
-        self.filters = None
-        self.T = None
-        self.current_epoch = 0
+        self.filter_scale = filter_scale
 
+        # Check arguments
         if store_filters in ["norm", "unorm"] or store_filters is False:
             self.store_filters=store_filters
         else:
@@ -43,8 +43,31 @@ class AWLoss(nn.Module):
         else:
             raise ValueError("reduction must be 'mean' or 'sum', but found {}".format(reduction))
 
+        if filter_dim in [1, 2, 3]:
+            self.filter_dim = filter_dim
+            self.dims = tuple([-i for i in range(self.filter_dim, 0, -1)])
+        else:
+            raise ValueError("Filter dimenions must be 1, 2 or 3, but found {}".format(filter_dim))
+
+        if method=="fft" or method=="direct":
+            self.method = method
+            if method=="direct":
+                self.filter_scale = 2 # Larger filter scales not supported for direct methods
+                if self.filter_dim == 3:
+                    raise NotImplementedError("3D filter implementation not available for the direct method")
+        else:
+            raise ValueError("method must be 'fft' or 'direct', but found {}".format(method))
+
+        # Variables to store metadata
+        self.filters = None     
+        self.T = None
+        self.current_epoch = 0
+
     def update_epoch(self):
         self.epoch = self.current_epoch + 1 
+
+    def norm(self, A, dim=()):
+        return torch.sqrt(torch.sum(A**2, dim=dim))
 
     def make_toeplitz(self, a):
         "Makes toeplitz matrix of a vector A"
@@ -72,103 +95,114 @@ class AWLoss(nn.Module):
                 Z[ridx:ridx+r_block, cidx:cidx+c_block] = row_toeplitz[:, :]
         return Z  
 
-    def pad_edges_to_len(self, x, length, val=0):
-        """
-        x must be a 1d signal of shape [batch_size, signal_length]
-        """
-        total_pad = length - x.shape[1]
-        pad_lef = floor(total_pad / 2)
-        pad_rig = total_pad - pad_lef
-        return nn.ConstantPad1d((pad_lef, pad_rig), val)(x)
+    def get_filter_shape(self, input_shape):
+        if self.filter_dim == 1:
+            _, n = input_shape
+            fs = [self.filter_scale*n]
+        elif self.filter_dim == 2:
+            _, nc, h, w = input_shape
+            fs = [nc, self.filter_scale*h, self.filter_scale*w]
+        elif self.filter_dim == 3:
+            _, nc, h, w = input_shape
+            fs = [self.filter_scale*nc-1, self.filter_scale*h-1, self.filter_scale*w-1]   
+        for i in range(len(fs)): # make filter dimensions odd
+            if fs[i] % 2 == 0:
+                fs[i] = fs[i] - 1
+        return fs
 
-    def pad_edges_to_shape(self, x, shape, val=0):
+    def pad_signal(self, x, shape, val=0):
         """
         x must be a multichannel signal of shape [batch_size, nchannels, width, height]
         """
-        pad_top, pad_lef = floor((shape[0] - x.shape[2])/2), floor((shape[1] - x.shape[3])/2)
-        pad_bot, pad_rig = shape[0] - x.shape[2] - pad_top, shape[1] - x.shape[3] - pad_lef
-        return nn.ConstantPad2d((pad_lef, pad_rig, pad_top, pad_bot), val)(x)
+        assert len(x.shape[1:]) == len(shape), "{} {}".format(x.shape, shape)
+        pad = []
+        for i in range(len(x.shape[1:])):
+            p1 = floor((shape[i] - x.shape[i+1])/2)
+            p2 = shape[i]-x.shape[i+1] - p1
+            pad.extend((p1, p2))
+        try:
+            pad = [pad[i] for i in [2, 3, 4, 5, 0, 1]] # permutation of list to agree with nn.functional.pad
+        except:
+            pass
+        return nn.functional.pad(x, tuple(pad), value=val)
 
-    def gaussian(self, xarr, a, std, mean, dim=1):
-        return a*torch.exp(-(xarr - mean)**2 / (2*std**2))
-
-    def gauss2d(self, x=0, y=0, mx=0, my=0, sx=1., sy=1., a=1.):
-        return a / (2. * np.pi * sx * sy) * torch.exp(-((x - mx)**2. / (2. * sx**2.) + (y - my)**2. / (2. * sy**2.)))
-
-    def penalty(self, xarr, std=1.):
-        tarr = self.gaussian(xarr=xarr, a=1.0, std=std, mean=0)
-        tarr = tarr / torch.max(torch.abs(tarr))
-        return  tarr
-
-    def penalty2d(self, shape, stdx=1., stdy=1., device="cpu"):
-        xarr = torch.linspace(-10., 10., shape[0], requires_grad=True, device=device)
-        yarr = torch.linspace(-10., 10., shape[1], requires_grad=True, device=device)
-        xx, yy = torch.meshgrid(xarr, yarr)
-
-        # Adjust the location of the zero-lag of the T function to match the location of the expected delta spike
-        dispx, dispy = (len(xarr) % 2 - 1) / 2, (len(yarr) % 2 - 1) / 2
-        dx, dy = (xarr[-1] - xarr[0]) / (len(xarr) - 1), (yarr[-1] - yarr[0]) / (len(yarr) - 1)
-
-        tarr = self.gauss2d(xx, yy, mx=dx*dispx, my=dy*dispy, sx=stdx, sy=stdy, a=1.0)
-        tarr = tarr / torch.max(torch.abs(tarr)) # normalise amplitude of T
-        return tarr.to(device)
-        
-    def norm(self, A, dim=()):
-        return torch.sqrt(torch.sum(A**2, dim=dim))
-
-    def forward(self, *args):
-        raise NotImplementedError ("Please use derived classes to implement AWLoss")
-
-class AWLoss1D(AWLoss):
-    def __init__(self, *args, **kwargs) :
-        super(AWLoss1D, self).__init__(*args, **kwargs)
-    
-    def forward(self, recon, target):
+    def multigauss(self, mesh, mean, covmatrix):
         """
-        Adaptive Weiner Loss Computation
+        Multivariate gaussian of N dimensions on evenly spaced hypercubed grid 
+        Mesh should be stacked along the last axis
+        E.g. for a 3D gaussian of 20 grid points in each axis mesh should be of shape (20, 20, 20, 3)
+        """
+        assert len(covmatrix.shape) == 2
+        assert covmatrix.shape[0] == covmatrix.shape[1]
+        assert covmatrix.shape[0] == len(mean)
+        assert len(mesh.shape) == len(mean) + 1, "{} {}".format(len(mesh.shape), len(mean))
+        rv = torch.distributions.multivariate_normal.MultivariateNormal(mean, covmatrix)
+        rv = torch.exp(rv.log_prob(mesh))
+        rv = rv / torch.abs(rv).max()   
+        return rv
+
+    def make_penalty(self, shape, device="cpu"):
+        arr = [torch.linspace(-1., 1., n, requires_grad=True).to(device) for n in shape]
+        mesh = torch.meshgrid(arr)
+        mesh = torch.stack(mesh, axis=-1)
+        mean = torch.tensor([0. for i in range(mesh.shape[-1])])
+        covmatrix = torch.diag(torch.tensor([self.std**2 for i in range(mesh.shape[-1])]))
+        return self.multigauss(mesh, mean, covmatrix)
+
+    def wienerfft(self, x, y, fs, prwh=1e-9):
+        """
+        George Strong (geowstrong@gmail.com)
+        calculates the optimal least squares convolutional Wiener filter that 
+        transforms signal x into signal y using FFT
+        """
+        assert x.shape == y.shape, "signals x and y must be the same shape"
+        Fccorr = torch.fft.fftn(torch.flip(x, self.dims), dim=self.dims)*torch.fft.fftn(y, dim=self.dims) # cross-correlation of x with y 
+        Facorr = torch.fft.fftn(torch.flip(x, self.dims), dim=self.dims)*torch.fft.fftn(x, dim=self.dims) # auto-correlation of x
+        Fdconv = Fccorr/(Facorr+torch.abs(Facorr).max()*prwh) # deconvolution of Fccorr by Facorr
+        rolled = torch.fft.irfftn(Fdconv, fs[-self.filter_dim:], dim=self.dims) # inverse Fourier transform
+        rolling = tuple([int(-x.shape[i]/2) - 1 for i in range(1, len(x.shape), 1)])[-len(self.dims):]
+        return torch.roll(rolled, rolling, dims=self.dims) 
+
+    def wiener(self, x, y, fs, epsilon=1e-9):
+        """
+        calculates the optimal least squares convolutional Wiener filter that 
+        transforms signal x into signal y using the direct Toeplitz matrix implementation
+        """
+        assert x.shape == y.shape, "signals x and y must be the same shape"
+        
+        bs = x.shape[0]
+        v = torch.empty([bs]+fs)
+
+        if self.filter_dim == 1:
+            for i in range(v.shape[0]):
+                # Compute filter
+                D = self.make_toeplitz(x[i])
+                D_t = D.T
+                tmp = D.T @ D
+                tmp = tmp + torch.diag(torch.zeros_like(torch.diagonal(tmp)) + torch.abs(tmp).max()*epsilon)
+                tmp = torch.inverse(tmp)
+                v[i] = tmp @ (D_t @ self.pad_signal(y[i].unsqueeze(0), [D_t.shape[1]])[0])
+
+        elif self.filter_dim == 2:
+            for i in range(bs): 
+                for j in range(x.shape[1]):
+                    # Compute filter
+                    Z = self.make_doubly_block(x[i][j])
+                    Z_t = Z.T        
+                    tmp = Z_t @ Z
+                    tmp = tmp + torch.diag(torch.zeros_like(torch.diagonal(tmp)) + torch.abs(tmp).max()*self.epsilon)# stabilise diagonals for matrix inversion
+                    tmp = torch.inverse(tmp) 
+                    tmp = tmp @ (Z_t @ self.pad_signal(y[i][j].unsqueeze(0), (3*y.shape[2] - 2, 3*y.shape[3] - 2)).flatten(start_dim=0))
+                    v[i][j] = tmp.reshape(fs[-self.filter_dim:])
+        return v        
+
+
+    def forward(self, recon, target, epsilon=None):
+        """
+        Adaptive Wiener Loss Computation
         Loss is based on reverse AWI, which makes use of a more efficient computational graph (see paper)
         In reverse FWI, the filter v computed below is the filter that transforms  "target" into "recon"
 
-        """
-        assert recon.shape == target.shape
-        recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
-        # recon, target = torch.flip(recon, dims=(0,1)), torch.flip(target, dims=(0,1))
-
-        
-        self.T = self.penalty(torch.linspace(-1., 1., 2*recon.shape[1]-1, requires_grad=True), self.std).to(recon.device)
-        if self.store_filters: self.filters = torch.zeros(recon.shape[0], 2*recon.shape[1]-1 ).to(recon.device) if self.store_filters else None
-        
-        f = 0.
-        for i in range(recon.size(0)):
-            # Compute filter
-            D = self.make_toeplitz(target[i])
-            D_t = D.T
-            v = D.T @ D
-            v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)
-            v = torch.inverse(v)
-            v = v @ (D_t @ self.pad_edges_to_len(recon[i].unsqueeze(0), D_t.shape[1])[0])
-            
-            # Normalise filter and store if prompted
-            if self.store_filters=="unorm": self.filters[i] = v[:]
-            v = v / self.norm(v)
-            if self.store_filters=="norm": self.filters[i] = v[:]
-
-            # Compute functional
-            f = f + 0.5 * self.norm(self.T - v) #+ 100*self.norm(v)
-                
-        if self.reduction == "mean":
-            f = f / recon.size(0)
-
-        return f
-      
-      
-class AWLoss2D(AWLoss):
-    def __init__(self, *args, **kwargs) :
-        super(AWLoss2D, self).__init__(*args, **kwargs)
-      
-    
-    def forward(self, recon, target):
-        """
         g = || P*W - D ||^2
         g = || Zw - d ||^2
         dgdw = Z^T (Zw - d)
@@ -176,13 +210,12 @@ class AWLoss2D(AWLoss):
 
         To stabilise the matrix inversion, an amount is added to the diagonal of (Z^T @ Z)
         based on alpha and epsilon values such that the inverted matrix is 
-        (Z^T @ Z) + alpha*diagonal(Z^T @ Z) + epsilon
+        (Z^T @ Z) + max(diagonal(Z^T @ Z)) * epsilon
         
         Working to minimise || P*W - D ||^2 where P is the reconstructed image convolved with a 2D kernel W, 
         D is the original/target image, and optimisation aims to force W to be an identity kernel. 
         (https://en.wikipedia.org/wiki/Kernel_(image_processing))
         
-        P, D and W here in the code assumed to be single channel and numerically take form of a 2D matrix.
         
         Convolving P with W (or W with P) is equivalent to the matrix vector multiplication Zd where Z is the 
         doubly block toeplitz of the reconstructed image P and w is the flattened array of the 2D kernel W. 
@@ -191,168 +224,55 @@ class AWLoss2D(AWLoss):
         Therefore, the system is equivalent to solving || Zw - d ||^2, and the solution to w is given by
         w = (Z^T @ Z)^(-1) @ Z^T @ d 
         
-        Finally, the function T is an inverse multivariate gaussian in a 2D space to reward when the kernel W is close
+        This composes the direct method.
+
+        Alternatively, convolution can be performed in the frequency domain with multiplication and division operations.
+        This tends to be much more computationaly efficient.
+
+        Finally, the function T is an inverse multivariate gaussian in a n-dimensional space to reward when the kernel W is close
         to the identity kernel, and penalise otherwise.
-        The value std controls the standard deviation (the spread) of T in both directions and the value a its amplitude
+        The value std controls the standard deviation (the spread) of T in all directions.
       
-        This function applies the reverse AWI formulation (see paper)
-        
-        """
-        assert target.shape == recon.shape
-        bs, nc = recon.size(0), recon.size(1)
-
-        filter_shape = (2*recon.shape[2] - 1, 2*recon.shape[3] - 1)
-        self.T = self.penalty2d(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
-        if self.store_filters: self.filters = torch.zeros(bs, nc, filter_shape[0], filter_shape[1]).to(recon.device) # one filter per image 
-
-        ## COULD BE VECTORISED? This loop treats every image in batch and every channel of each image as a "separate" sample
-        f = 0.
-        for i in range(bs): 
-          for j in range(nc):
-            # Compute filter
-            Z = self.make_doubly_block(target[i][j])
-            Z_t = Z.T        
-            v = Z_t @ Z
-            v = v + torch.diag(torch.zeros_like(torch.diagonal(v)) + torch.abs(v).max()*self.epsilon)# stabilise diagonals for matrix inversion
-            v = torch.inverse(v) ## COULD BE OPTIMISED?
-            v = v @ (Z_t @ self.pad_edges_to_shape(recon[i][j].unsqueeze(0).unsqueeze(0), (3*recon.shape[2] - 2, 3*recon.shape[3] - 2)).flatten(start_dim=0))
-            
-            # Normalise filter and store if prompted
-            if self.store_filters=="unorm": self.filters[i][j] = v[:].view(filter_shape) 
-            v = v / self.norm(v)
-            if self.store_filters=="norm": self.filters[i][j] = v[:].view(filter_shape) 
-            
-            # Compute functional
-            f = f + 0.5 * self.norm(self.T.flatten() - v) #/ self.norm(v)
-            
-        if self.reduction=="mean":
-          f = f / (bs * nc)
-          
-        return f
-
-
-class AWLoss1DFFT(AWLoss):
-    def __init__(self, filter_scale=2, *args, **kwargs) :
-        super(AWLoss1DFFT, self).__init__(*args, **kwargs)
-        self.filter_scale = filter_scale
-        
-    def wienerfft(self, x, y, prwh=3e-15):
-        """
-        George Strong (geowstrong@gmail.com)
-        calculates the optimal least squares convolutional Wiener filter that 
-        transforms signal x into signal y
         """
 
-        assert x.shape == y.shape, "signals x and y must be the same size but are {} and {}".format(x.shape, y.shape)
-        
-        Fccorr = torch.fft.fft(torch.flip(x, (0,1)), dim=1)*torch.fft.fft(y, dim=1) # cross-correlation of x with y 
-        Facorr = torch.fft.fft(torch.flip(x, (0,1)), dim=1)*torch.fft.fft(x, dim=1) # auto-correlation of x
-        Fdconv = Fccorr/(Facorr+torch.abs(Facorr).max()*prwh) # deconvolution of Fccorr by Facorr
-        rolled = torch.fft.irfft(Fdconv, x.shape[1], dim=1) # inverse Fourier transform
-        return torch.roll(rolled, int(-x.shape[1]/2-1), dims=1)
+        assert recon.shape == target.shape, "recon and target must be of the same shape but found {} and {}".format(recon.shape, target.shape)
+        # if self.filter_dim == 3: assert recon.shape[1] >= 3, "3D AWLoss only available for multichannel signal"
 
-    def forward(self, recon, target, epsilon=None):
-        """
-        Implements AWLoss using 1D filters and flattened images in the frequency domain
-        This function applies the reverse AWI formulatio (see paper)
-        """
-        assert recon.shape == target.shape
-        
-        # Flatten recon and target for 1D processing
-        recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
+        # Batch size
+        bs = recon.shape[0]
+
+        # Flatten recon and target for 1D filters
+        if self.filter_dim == 1:
+            recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
 
         # Define size of the filter, reserve memory to store them if prompted
-        filter_size = self.filter_scale*recon.shape[1]
-        if filter_size % 2 == 0:
-            filter_size = filter_size - 1
-        self.filters = torch.zeros(recon.shape[0], filter_size).to(recon.device) if self.store_filters else None
+        fs = self.get_filter_shape(recon.shape)
+        self.filters = torch.zeros([bs]+fs).to(recon.device) if self.store_filters else None
 
-        # Apply padding for FFT convolution
-        recon = self.pad_edges_to_len(recon, filter_size)
-        target = self.pad_edges_to_len(target, filter_size)
-
-        # Compute weiner filter
+        # Compute wiener filter
         epsilon = self.epsilon if epsilon is None else epsilon
-        # v = self.wienerfft(recon, target, epsilon) # forward AWI
-        v = self.wienerfft(target, recon, epsilon) # reverse AWI
+        if self.method == "fft":
+            recon, target = self.pad_signal(recon, fs), self.pad_signal(target, fs)
+            v = self.wienerfft(target, recon, fs, epsilon) # reverse AWI filter
+        elif self.method == "direct":
+            v = self.wiener(target, recon, fs, epsilon)    # reverse AWI filter
 
         # Normalise filter and store if prompted
         if self.store_filters=="unorm": self.filters = v[:]
-        v = v / self.norm(v, dim=1).unsqueeze(-1).expand_as(v)
-        if self.store_filters=="norm": self.filters = v[:]
-
-        # Penalty function
-        self.T = self.penalty(torch.linspace(-1., 1., filter_size, requires_grad=True), self.std).to(recon.device)
-        T = self.T.repeat(recon.size(0), 1)
-
-        # Compute loss
-        f = 0.5 * self.norm(T - v, dim=1)
-        f = f.sum()  
-        if self.reduction == "mean":
-            f = f / recon.size(0)
-
-        return f
-
-
-class AWLoss2DFFT(AWLoss):
-    def __init__(self, filter_scale=2, *args, **kwargs) :
-        super(AWLoss2DFFT, self).__init__(*args, **kwargs)
-        self.filter_scale = filter_scale
-
-    def wienerfft2D(self, x, y, prwh=1e-9):
-        """
-        George Strong (geowstrong@gmail.com)
-        calculates the optimal least squares 2D convolutional Wiener filter that 
-        transforms 2D signal x into 2D signal y
-        """
-        assert x.shape == y.shape, "signals x and y must be the same shape"
-        Fccorr = torch.fft.fftn(torch.flip(x, (2,3)), dim=(2,3))*torch.fft.fftn(y, dim=(2,3)) # cross-correlation of x with y 
-        Facorr = torch.fft.fftn(torch.flip(x, (2,3)), dim=(2,3))*torch.fft.fftn(x, dim=(2,3)) # auto-correlation of x
-        Fdconv = Fccorr/(Facorr+torch.abs(Facorr).max()*prwh) # deconvolution of Fccorr by Facorr
-        rolled = torch.fft.irfftn(Fdconv, x.shape[2:], dim=(2,3)) # inverse Fourier transform
-        return torch.roll(rolled, (int(-x.shape[2]/2-1), int(-x.shape[3]/2-1)), dims= (2,3)) 
-
-
-    def forward(self, recon, target, epsilon=None):
-        """
-        Implements AWLoss using 2D filters and multichannel images in the frequency domain
-        This function implements the reverse AWI formulation (see paper)
-        """
-        assert recon.shape == target.shape
-        bs, nc = recon.size(0), recon.size(1)
-
-
-        # Define size of the filter, reserve memory to store them if prompted
-        filter_shape = [self.filter_scale*recon.shape[2], self.filter_scale*recon.shape[3] - 1]
-        if filter_shape[0] % 2 == 0:
-            filter_shape[0] = filter_shape[0] - 1
-        if filter_shape[1] % 2 == 0:
-            filter_shape[1] = filter_shape[1] - 1
-        self.filters = torch.zeros(bs, nc, filter_shape[0], filter_shape[1]).to(recon.device) if self.store_filters else None
-        
-
-        # Apply padding for FFT convolution
-        recon = self.pad_edges_to_shape(recon, filter_shape)
-        target = self.pad_edges_to_shape(target, filter_shape)
-
-        # Compute weiner filter for each channel of each sample in batch
-        epsilon = self.epsilon if epsilon is None else epsilon
-        v = self.wienerfft2D(target, recon, epsilon) # reverse AWI filter
-
-        # Normalise filter and store if prompted
-        if self.store_filters=="unorm": self.filters = v[:]   
-        v = v / self.norm(v, dim=(-2,-1)).unsqueeze(-1).unsqueeze(-1).expand_as(v)
+        vnorm = self.norm(v, dim=self.dims)
+        for i in range(self.filter_dim):
+            vnorm = vnorm.unsqueeze(-1)
+        vnorm = vnorm.expand_as(v)
+        v = v / vnorm
         if self.store_filters=="norm": self.filters = v[:]     
 
         # Penalty function
-        self.T = self.penalty2d(shape=filter_shape, stdx=self.std, stdy=self.std, device=recon.device)
-        T = self.T.repeat(recon.size(0), recon.size(1), 1 ,1)
-
+        self.T = self.make_penalty(fs[-self.filter_dim:])
+        T = self.T.unsqueeze(0).expand_as(v)
+        
         # Compute loss
-        f = 0.5 * self.norm(T - v, dim=(-2,-1))
+        f = 0.5 * self.norm(T - v, self.dims)
         f = f.sum()
         if self.reduction == "mean":
             f = f / recon.size(0)
         return f
-
-
