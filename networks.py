@@ -15,6 +15,12 @@ class Mish(nn.Module):
   def forward(self, x):
     return(x * torch.tanh(F.softplus(x)))
 
+class Sine(nn.Module):
+  def __init__(self):
+    super(Sine, self).__init__()
+  def forward(self, x):
+    return torch.sin(x)
+
   
 class Autoencoder(nn.Module):
   def __init__(self, dims_latent, nc=1, h=28):
