@@ -145,8 +145,8 @@ class AWLoss(nn.Module):
         arr = [torch.linspace(-1., 1., n, requires_grad=True).to(device) for n in shape]
         mesh = torch.meshgrid(arr)
         mesh = torch.stack(mesh, axis=-1)
-        mean = torch.tensor([0. for i in range(mesh.shape[-1])])
-        covmatrix = torch.diag(torch.tensor([self.std**2 for i in range(mesh.shape[-1])]))
+        mean = torch.tensor([0. for i in range(mesh.shape[-1])]).to(device)
+        covmatrix = torch.diag(torch.tensor([self.std**2 for i in range(mesh.shape[-1])])).to(device)
         return self.multigauss(mesh, mean, covmatrix)
 
     def wienerfft(self, x, y, fs, prwh=1e-9):
@@ -267,7 +267,7 @@ class AWLoss(nn.Module):
         if self.store_filters=="norm": self.filters = v[:]     
 
         # Penalty function
-        self.T = self.make_penalty(fs[-self.filter_dim:])
+        self.T = self.make_penalty(fs[-self.filter_dim:], device=recon.device)
         T = self.T.unsqueeze(0).expand_as(v)
         
         # Compute loss
