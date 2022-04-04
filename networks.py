@@ -131,6 +131,7 @@ class CAE28(nn.Module):
       # Activation
       self.activation = Mish()
       self.sigmoid = nn.Sigmoid()
+      self.sine = Sine()
 
       # Encoder Layers
       self.e_cv1 = nn.Conv2d(in_channels=nc,  out_channels=32,  kernel_size=4, stride=2, padding=0)
