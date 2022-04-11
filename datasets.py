@@ -29,9 +29,10 @@ class TransformTensorDataset(Dataset):
         return self.tensors[0].size(0)
 
 class UndersampledUltrasoundDataset3D(Dataset):
-    def __init__(self, path, transform=None, mode="mri", undersample_width=(2, 0, 0)):
+    def __init__(self, path, transform=None, mode="mri", undersample_width=(2, 0, 0), maxsamples=None):
 
         self.path = path
+        self.maxsamples=maxsamples
         self.transform = transform
 
         if len(undersample_width) == 3:
@@ -47,11 +48,11 @@ class UndersampledUltrasoundDataset3D(Dataset):
 
         # Get image paths
         self.data_paths = []
-        self._get_image_paths(path)
+        self._get_image_paths(path, maxsamples)
 
         return None
 
-    def _get_image_paths(self, path):
+    def _get_image_paths(self, path, maxsamples=None):
         prefix = "m" if self.mode == "mri" else "vp"
         suffix = ".npy.gz"
         
@@ -60,6 +61,7 @@ class UndersampledUltrasoundDataset3D(Dataset):
             for filename in files:
                 if filename.lower().startswith(prefix) and filename.lower().endswith(suffix):
                     self.data_paths.append(os.path.join(subdir, filename))
+        self.data_paths = self.data_paths[:maxsamples]
         return None
 
     def __getitem__(self, index):
