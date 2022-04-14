@@ -276,3 +276,19 @@ class AWLoss(nn.Module):
         if self.reduction == "mean":
             f = f / recon.size(0)
         return f
+
+
+class PixelAWLoss(nn.Module):
+    def __init__(self, reduction="sum", epsilon=3e-5) :
+        super(PixelAWLoss, self).__init__()
+        self.reduction = reduction
+        self.epsilon = epsilon
+
+    def forward(self, recon, target):
+        r = recon/(target + self.epsilon)
+        f = torch.abs(torch.ones_like(r) - r)
+        f = f.sum()
+        if self.reduction == "mean":
+            f = f / recon.size(0)
+
+        return f
