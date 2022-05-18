@@ -117,7 +117,7 @@ class UndersampledUltrasoundDataset3D(Dataset):
 
 class MaskedUltrasoundDataset2D(Dataset):
     def __init__(self, path, transform=None, mode="mri", mask=None, maxsamples=None):
-
+        super(MaskedUltrasoundDataset2D, self).__init__()
         self.path = path
         self.maxsamples=maxsamples
         self.transform = transform
@@ -150,7 +150,7 @@ class MaskedUltrasoundDataset2D(Dataset):
         # Item path
         y_path = self.data_paths[index]
 
-        # Unzip and read data
+        # Read data
         y = torch.from_numpy(np.load(y_path))
 
         # Apply transform
@@ -165,7 +165,6 @@ class MaskedUltrasoundDataset2D(Dataset):
             return y
 
 
-
     def __len__(self):
         return len(self.data_paths)
 
@@ -177,13 +176,14 @@ class MaskedUltrasoundDataset2D(Dataset):
         dic["len"] = self.__len__()
         return "{}".format(dic)
 
-    def info(self, nsamples=30):
+    def info(self, nsamples=None):
+        nsamples = self.__len__() if nsamples is None else nsamples
         sample = self.__getitem__(0)[0]
         idx = torch.randint(0, self.__len__(), [nsamples])
         arr = torch.empty_like(sample).unsqueeze(0).repeat(nsamples, 1, 1, 1)
         for i in range(nsamples):
             arr[i] = self.__getitem__(idx[i])[0]
-        stats = {"max": arr.max(), "min": arr.min(), "mean": arr.mean(), "std": arr.std(), "shape":sample.shape}
+        stats = {"max": arr.max().item(), "min": arr.min().item(), "mean": arr.mean().item(), "std": arr.std().item(), "shape":sample.shape}
 
         return stats
 
