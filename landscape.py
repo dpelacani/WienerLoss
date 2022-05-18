@@ -96,8 +96,8 @@ def compute_loss_landscape(model, data_loader, criterion, xmin=-0.5, xmax=0.5, y
           for j, dy in enumerate(dy_arr):
               # Perturb weights and evaluate loss
               update_weights(model_to_perturb, weights, x_dir, y_dir, dx, dy, device)
-              loss = eval(model_to_perturb, criterion, data_loader, device).item()
-              loss_landscape[i, j] = loss
+              loss = eval(model_to_perturb, criterion, data_loader, device)
+              loss_landscape[i, j] = loss.item()
 
               # Ocasionally print loss
             #   if (nx*i + j) % 10 == 0:

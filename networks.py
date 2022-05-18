@@ -15,6 +15,12 @@ class Mish(nn.Module):
   def forward(self, x):
     return(x * torch.tanh(F.softplus(x)))
 
+class Sine(nn.Module):
+  def __init__(self):
+    super(Sine, self).__init__()
+  def forward(self, x):
+    return torch.sin(x)
+
   
 class Autoencoder(nn.Module):
   def __init__(self, dims_latent, nc=1, h=28):
@@ -125,6 +131,7 @@ class CAE28(nn.Module):
       # Activation
       self.activation = Mish()
       self.sigmoid = nn.Sigmoid()
+      self.sine = Sine()
 
       # Encoder Layers
       self.e_cv1 = nn.Conv2d(in_channels=nc,  out_channels=32,  kernel_size=4, stride=2, padding=0)
