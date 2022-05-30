@@ -69,9 +69,9 @@ def eval(model, criterion, dataloader, device="cpu"):
     return total_loss/len(dataloader.dataset)
 
 
-def compute_loss_landscape(model, data_loader, criterion, xmin=-0.5, xmax=0.5, ymin=-0.5, ymax=0.5, device="cpu"):
+def compute_loss_landscape(model, data_loader, criterion, xmin=-0.5, xmax=0.5, ymin=-0.5, ymax=0.5, nx=25, ny=25, device="cpu"):
     # Get weights at origin (trained model weights)
-    model = model.to(device)
+    # device = model.device
     weights = [p.data for p in model.parameters()]
 
     # Get 2 random perturbation directions
@@ -83,7 +83,6 @@ def compute_loss_landscape(model, data_loader, criterion, xmin=-0.5, xmax=0.5, y
     print("Angle between x_dir and y_dir: %.2f °"%rad2deg(angle(x_vec, y_vec)))
 
     # Create arrays for storing perturbation distances and losses
-    nx, ny = 25, 25
     dx_arr = torch.linspace(xmin, xmax, nx)
     dy_arr = torch.linspace(ymin, ymax, ny)
     xx, yy = torch.meshgrid(dx_arr, dy_arr)
@@ -106,8 +105,8 @@ def compute_loss_landscape(model, data_loader, criterion, xmin=-0.5, xmax=0.5, y
               bar.update(nx*i + j)
     return xx, yy, loss_landscape
 
-def visualise_landscape(model, loader, criterion, xmin=-0.5, xmax=0.5, ymin=-0.5, ymax=0.5, vmin=None, vmax=None, mode="plot", device="cpu"):
-    xx, yy, loss_landscape = compute_loss_landscape(model, loader, criterion, xmin, xmax, ymin, ymax, device=device)
+def visualise_landscape(model, loader, criterion, xmin=-0.5, xmax=0.5, ymin=-0.5, ymax=0.5, vmin=None, vmax=None, mode="plot", nx=25, ny=25, device="cpu"):
+    xx, yy, loss_landscape = compute_loss_landscape(model, loader, criterion, xmin, xmax, ymin, ymax, nx, ny, device=device)
     if mode=="contour":
         contour_loss_landscape(xx, yy, loss_landscape, vmin, vmax)
     elif mode=="plot" or mode=="3d":

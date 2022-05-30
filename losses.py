@@ -244,6 +244,9 @@ class AWLoss(nn.Module):
         # Flatten recon and target for 1D filters
         if self.filter_dim == 1:
             recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
+        # print(recon.shape, self.norm(recon, self.dims).expand_as(recon).shape)
+        # recon = recon / self.norm(recon, self.dims).expand_as(recon)
+        # target = target / self.norm(target, self.dims).expand_as(target)
 
         # Define size of the filter, reserve memory to store them if prompted
         fs = self.get_filter_shape(recon.shape)
@@ -267,11 +270,20 @@ class AWLoss(nn.Module):
         if self.store_filters=="norm": self.filters = v[:]     
 
         # Penalty function
-        self.T = self.make_penalty(fs[-self.filter_dim:], device=recon.device)
+        self.T = self.make_penalty(fs[-self.filter_dim:], device=recon.device) 
         T = self.T.unsqueeze(0).expand_as(v)
+
+        self.std = 3e-7
+        delta = self.make_penalty(fs[-self.filter_dim:], device=recon.device) 
+        delta = delta.unsqueeze(0).expand_as(v)
         
         # Compute loss
-        f = 0.5 * self.norm(T - v, self.dims)
+        f = 0.5 * self.norm(delta - v, self.dims)
+
+        # T = -T + T.max()
+        # f = 0.5 * self.norm(v * T, self.dims) / self.norm(v)
+        # f = 0.5 * self.norm(T*(v-delta), self.dims)
+
         f = f.sum()
         if self.reduction == "mean":
             f = f / recon.size(0)

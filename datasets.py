@@ -1,6 +1,7 @@
 import os
 import gzip
 from copy import deepcopy
+from typing import Type
 import numpy as np
 import torch
 import torch.nn as nn
@@ -136,7 +137,7 @@ class MaskedUltrasoundDataset2D(Dataset):
 
     def _get_image_paths(self, path, maxsamples=None):
         prefix = "m" if self.mode == "mri" else "vp"
-        suffix = ".npy"
+        suffix = (".npy", ".npy.gz")
         
         # Loop through folders and subfolders
         for subdir, _, files in os.walk(path):
@@ -151,7 +152,13 @@ class MaskedUltrasoundDataset2D(Dataset):
         y_path = self.data_paths[index]
 
         # Read data
-        y = torch.from_numpy(np.load(y_path))
+        if y_path.endswith(".npy.gz"):
+            with gzip.open(y_path, 'rb') as f:
+                y = torch.from_numpy(np.load(f))
+        elif y_path.endswith(".npy"):
+            y = torch.from_numpy(np.load(y_path))
+        else:
+            raise TypeError
 
         # Apply transform
         if self.transform:
@@ -160,7 +167,6 @@ class MaskedUltrasoundDataset2D(Dataset):
         if self.mask is not None:
             x = self.mask * y
             return x, y
-
         else:
             return y
 
