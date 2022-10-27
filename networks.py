@@ -317,5 +317,56 @@ class CelebConvAE(torch.nn.Module):
         return x
 
 
+# convolution, batch norm and ReLU block
+class Block(torch.nn.Module):
+    def __init__(self, in_f, out_f):
+        super().__init__()
+        self.f = torch.nn.Sequential(
+            torch.nn.Conv2d(in_f, out_f, kernel_size=3, stride=1, padding=1),
+            torch.nn.BatchNorm2d(out_f),
+            # torch.nn.LeakyReLU(inplace=True)
+            Mish()
+        )
+    def forward(self,x):
+        return self.f(x)
+
+# define undercomplete resize-convolution autoencoder
+class ResizeConvAE(torch.nn.Module):
+    def __init__(self, f=16, n_channels=3, latent_size=32, pre_latent_size=32):
+        super().__init__()
+        
+        # define the encoder
+        self.encode = torch.nn.Sequential(
+            Block(n_channels, f),                                    # out dim: bs,   f, 32, 32
+            torch.nn.MaxPool2d(kernel_size=(2,2)),                   # out dim: bs,   f, 16, 16
+            Block(f  ,f*2),                                          # out dim: bs, f*2, 16, 16
+            torch.nn.MaxPool2d(kernel_size=(2,2)),                   # out dim: bs, f*2,  8,  8
+            Block(f*2,f*4),                                          # out dim: bs, f*4,  8,  8
+            torch.nn.Flatten(),                                      # out dim: bs, f*4*2*2
+            torch.nn.Linear(f*4*(pre_latent_size**2), latent_size)   # out dim: bs, latent_size
+        )
+        
+        # define the decoder
+        self.decode = torch.nn.Sequential(
+            torch.nn.Linear(latent_size, f*4*(pre_latent_size**2)),        # out dim: bs, f*4*2*2
+            torch.nn.Unflatten(1, (f*4, pre_latent_size, pre_latent_size)),# out dim: bs, f*4,  2,  2
+            Block(f*4,f*2),                                                # out dim: bs, f*2,  8,  8
+            torch.nn.Upsample(scale_factor=2),                             # out dim: bs, f*2, 16, 16
+            Block(f*2,f  ),                                                # out dim: bs,   f, 16, 16
+            torch.nn.Upsample(scale_factor=2),                             # out dim: bs,   f, 32, 32
+            torch.nn.Conv2d(f,n_channels, 3,1,1),                          # out dim: bs,   1, 32, 32
+            torch.nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        # pass the data through the encoder
+        x = self.encode(x)
+        
+        # pass the latent vector through the decoder
+        x = self.decode(x)
+        
+        return x
+
+
 if __name__=="__main__":
    pass

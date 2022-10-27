@@ -1,6 +1,7 @@
 import os
 import json
 import pathlib
+import sched
 import dill
 import pickle
 
@@ -28,7 +29,7 @@ def load_pickle(filename):
     return obj
 
 
-def save_exp(objs={}, figs={}, summary="", path=None, overwrite=False):
+def save_exp(objs={}, figs={}, summary="", path=None, overwrite=False, verbose=False):
     # Create folder to save experiment
     if path is None:
         cnt = 0
@@ -45,22 +46,27 @@ def save_exp(objs={}, figs={}, summary="", path=None, overwrite=False):
         os.mkdir(path)
     except:
         pass
-    print("Saving experiment at %s ..."%path.resolve())
+
+    if verbose:
+        print("Saving experiment at %s ..."%path.resolve())
 
     for name, obj in objs.items():
         filename = path / pathlib.Path("%s.pkl"%name)
         save_pickle(obj, filename.resolve())
-        print("\t %s"%filename)
+        if verbose:
+            print("\t %s"%filename)
 
     for name, fig in figs.items():
         filename = path / pathlib.Path("%s.png"%name)
         fig.savefig(filename, facecolor='w', transparent=False)
-        print("\t %s"%filename)
+        if verbose:
+            print("\t %s"%filename)
 
     with open(path / pathlib.Path("summary.json"), 'w') as f:
         summary["exp"] = path.parts[-1]
         json.dump(summary, f) 
-        print("\t summary.json")
+        if verbose:
+            print("\t summary.json")
     return path
 
 
@@ -74,7 +80,7 @@ def load_exp(path):
     return exp
 
 
-def train(model, dataloader, optimizer, criterion, device="cpu"):
+def train(model, dataloader, optimizer, criterion, scheduler=None, device="cpu"):
     """ Trains one epoch of a dataloader of an autoencoder """
     model.train()
     
@@ -92,10 +98,14 @@ def train(model, dataloader, optimizer, criterion, device="cpu"):
 
         # Backprop and take step
         loss.backward()
-        optimizer.step()  
+        optimizer.step()
+        optimizer.zero_grad()  
         
         # Keep track of total losses
         total_loss += loss.sum() / len(dataloader)
+
+    if scheduler:
+        scheduler.step()
     
     return total_loss
 
@@ -119,7 +129,7 @@ def validate(model, dataloader, criterion, device="cpu"):
 
 
 def train_model(model, optimizer, train_loader, valid_loader, loss, nepochs=150, log_frequency=10, 
-                device="cpu", gradflow=False, save=False, fcmap="seismic", summary_app={}):
+                scheduler=None, device="cpu", gradflow=False, save=False, fcmap="seismic", summary_app={}):
 
     # Sample for visualisation:
     try:
@@ -135,7 +145,7 @@ def train_model(model, optimizer, train_loader, valid_loader, loss, nepochs=150,
             bar.update(epoch)
 
             # Train and validate epoch
-            train_loss = train(model, train_loader, optimizer, loss, device)
+            train_loss = train(model, train_loader, optimizer, loss, scheduler, device)
             all_train_losses.append(train_loss.item())
             if valid_loader:
                 valid_loss = validate(model, valid_loader, loss, device)

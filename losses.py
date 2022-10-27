@@ -26,7 +26,9 @@ class KLD(nn.Module):
       return (sigma**2 + mu**2 - torch.log(sigma**2) - 1/2).sum()
 
 class AWLoss(nn.Module):
-    def __init__(self, epsilon=0., gamma=0., eta=0.,  std=1e-4, reduction="sum", method="fft", filter_dim=2, filter_scale=2, store_filters=False, penalty_function=None) :
+    def __init__(self, epsilon=0., gamma=0., eta=0.,  std=1e-4, reduction="sum",
+                 method="fft", filter_dim=2, filter_scale=2, store_filters=False,
+                 mode="reverse", penalty_function=None) :
         super(AWLoss, self).__init__()
         self.epsilon = epsilon
         self.gamma = gamma
@@ -34,6 +36,7 @@ class AWLoss(nn.Module):
         self.std = std
         self.filter_scale = filter_scale     
         self.penalty_function = penalty_function
+        self.mode = mode
 
         # Check arguments
         if store_filters in ["norm", "unorm"] or store_filters is False:
@@ -67,7 +70,7 @@ class AWLoss(nn.Module):
         self.current_epoch = 0
 
     def update_epoch(self):
-        self.epoch = self.current_epoch + 1 
+        self.epoch = self.current_epoch + 1
 
     def norm(self, A, dim=()):
         return torch.sqrt(torch.sum(A**2, dim=dim))
@@ -107,12 +110,16 @@ class AWLoss(nn.Module):
             fs = [nc, self.filter_scale*h, self.filter_scale*w]
         elif self.filter_dim == 3:
             _, nc, h, w = input_shape
-            fs = [self.filter_scale*nc-1, self.filter_scale*h-1, self.filter_scale*w-1]   
-        for i in range(len(fs)): # make filter dimensions odd
+            fs = [self.filter_scale*nc, self.filter_scale*h, self.filter_scale*w]
+
+        # Make filter dimensions odd integers
+        for i in range(len(fs)): 
+            fs[i] = int(fs[i])
             if fs[i] % 2 == 0:
-                fs[i] = fs[i] - 1
-        if self.filter_dim == 2: # for 2D filters, one is computed for each channel, so the filter size in that dimension must match
-            fs[0] = input_shape[1]
+                if (self.filter_dim == 2 and i == 0):  # except nchannels for 2D filters, dimension must match to input
+                    pass
+                else:
+                    fs[i] = fs[i] - 1
         return fs
 
     def pad_signal(self, x, shape, val=0):
@@ -126,7 +133,7 @@ class AWLoss(nn.Module):
             p2 = shape[i]-x.shape[i+1] - p1
             pad.extend((p1, p2))
         try:
-            pad = [pad[i] for i in [2, 3, 4, 5, 0, 1]] # permutation of list to agree with nn.functional.pad
+            pad = [pad[i] for i in [2, 3, 4, 5, 0, 1]]  # permutation of list to agree with nn.functional.pad
         except:
             pass
         return nn.functional.pad(x, tuple(pad), value=val)
@@ -147,18 +154,18 @@ class AWLoss(nn.Module):
         rv = -rv + rv.max() 
         return rv
 
-    def make_penalty(self, shape, device="cpu", flip=False):
+    def make_penalty(self, shape, std=1e-2, eta=0., penalty_function=None, flip=False,  device="cpu"):
         arr = [torch.linspace(-1., 1., n, requires_grad=True).to(device) for n in shape]
         mesh = torch.meshgrid(arr)
         mesh = torch.stack(mesh, axis=-1)
-        if self.penalty_function is None:
+        if penalty_function is None:
             mean = torch.tensor([0. for i in range(mesh.shape[-1])]).to(device)
-            covmatrix = torch.diag(torch.tensor([self.std**2 for i in range(mesh.shape[-1])])).to(device)
+            covmatrix = torch.diag(torch.tensor([std**2 for i in range(mesh.shape[-1])])).to(device)
             penalty = self.multigauss(mesh, mean, covmatrix)
+            penalty = -penalty + penalty.max() if flip else penalty
         else:
-            penalty = self.penalty_function(mesh)
-        penalty = -penalty + penalty.max() if flip else penalty
-        penalty = penalty + self.eta*torch.rand_like(penalty)
+            penalty = penalty_function(mesh)
+        penalty = penalty + eta*torch.rand_like(penalty)
         return penalty
 
     def wienerfft(self, x, y, fs, prwh=1e-9):
@@ -170,7 +177,7 @@ class AWLoss(nn.Module):
         assert x.shape == y.shape, "signals x and y must be the same shape"
         Fccorr = torch.fft.fftn(torch.flip(x, self.dims), dim=self.dims)*torch.fft.fftn(y, dim=self.dims) # cross-correlation of x with y 
         Facorr = torch.fft.fftn(torch.flip(x, self.dims), dim=self.dims)*torch.fft.fftn(x, dim=self.dims) # auto-correlation of x
-        Fdconv = Fccorr/(Facorr + prwh) # deconvolution of Fccorr by Facorr
+        Fdconv = (Fccorr + prwh) / (Facorr + prwh)  # deconvolution of Fccorr by Facorr
         rolled = torch.fft.irfftn(Fdconv, fs[-self.filter_dim:], dim=self.dims) # inverse Fourier transform
         rolling = tuple([int(-x.shape[i]/2) - 1 for i in range(1, len(x.shape), 1)])[-len(self.dims):]
         return torch.roll(rolled, rolling, dims=self.dims) 
@@ -206,7 +213,7 @@ class AWLoss(nn.Module):
                     tmp = torch.inverse(tmp) 
                     tmp = tmp @ (Z_t @ self.pad_signal(y[i][j].unsqueeze(0), (3*y.shape[2] - 2, 3*y.shape[3] - 2)).flatten(start_dim=0))
                     v[i][j] = tmp.reshape(fs[-self.filter_dim:])
-        return v        
+        return v
 
 
     def forward(self, recon, target, epsilon=None):
@@ -248,24 +255,10 @@ class AWLoss(nn.Module):
         """
 
         assert recon.shape == target.shape, "recon and target must be of the same shape but found {} and {}".format(recon.shape, target.shape)
-        # if self.filter_dim == 3: assert recon.shape[1] >= 3, "3D AWLoss only available for multichannel signal"
+
+        # White noise to recon and target for stabilisation
         recon = recon + self.gamma * torch.rand_like(recon)
         target = target + self.gamma * torch.rand_like(target)
-
-        # recon = torch.fft.fftshift(torch.fft.fftn(recon, dim=self.dims), dim=self.dims).real
-        # target = torch.fft.fftshift(torch.fft.fftn(target, dim=self.dims), dim=self.dims).real
-
-        # recon = recon / recon.abs().max()
-        # target = target / target.abs().max()
-
-        # print(recon.real.min(), recon.real.max())
-        # print(target.real.min(), target.real.max())
-
-        # plt.imshow(recon.real.detach().cpu()[0][0], vmin=-0.1, vmax=0.1, cmap="seismic")
-        # plt.show()
-
-        # plt.imshow(target.real.detach().cpu()[0][0], vmin=-0.1, vmax=0.1, cmap="seismic")
-        # plt.show()
 
         # Batch size
         bs = recon.shape[0]
@@ -273,9 +266,6 @@ class AWLoss(nn.Module):
         # Flatten recon and target for 1D filters
         if self.filter_dim == 1:
             recon, target = recon.flatten(start_dim=1), target.flatten(start_dim=1)
-        # print(recon.shape, self.norm(recon, self.dims).expand_as(recon).shape)
-        # recon = recon / self.norm(recon, self.dims).expand_as(recon)
-        # target = target / self.norm(target, self.dims).expand_as(target)
 
         # Define size of the filter, reserve memory to store them if prompted
         fs = self.get_filter_shape(recon.shape)
@@ -285,30 +275,42 @@ class AWLoss(nn.Module):
         epsilon = self.epsilon if epsilon is None else epsilon
         if self.method == "fft":
             recon, target = self.pad_signal(recon, fs), self.pad_signal(target, fs)
-            v = self.wienerfft(target, recon, fs, epsilon) # reverse AWI filter
+            if self.mode == "reverse":
+                v = self.wienerfft(target, recon, fs, epsilon) # reverse AWI filter
+                # print(v.shape)
+            elif self.mode == "forward":
+                v = self.wienerfft(recon, target, fs, epsilon) # forward AWI filter
+
         elif self.method == "direct":
-            v = self.wiener(target, recon, fs, epsilon)    # reverse AWI filter
+            if self.mode == "reverse":
+                v = self.wiener(target, recon, fs, epsilon)    # reverse AWI filter
+            if self.mode == "forward":
+                v = self.wiener(recon, target, fs, epsilon)    # forward AWI filter
 
         # Normalise filter and store if prompted
-        if self.store_filters=="unorm": self.filters = v[:]
-        vnorm = self.norm(v, dim=self.dims)
+        if self.store_filters == "unorm": self.filters = v[:]
+        vnorm = torch.norm(v, p=2, dim=self.dims)
         for i in range(self.filter_dim):
             vnorm = vnorm.unsqueeze(-1)
         vnorm = vnorm.expand_as(v)
-        if self.store_filters=="norm": self.filters = v[:] / vnorm    
+        if self.store_filters == "norm": self.filters = v[:] / vnorm    
 
         # Penalty function
-        self.T = self.make_penalty(fs[-self.filter_dim:], device=recon.device)
+        self.T = self.make_penalty(shape=fs[-self.filter_dim:], std=self.std,
+                                   eta=self.eta, penalty_function=self.penalty_function,
+                                   device=recon.device, flip=True)
+        # self.T = torch.clamp(self.T + 0.1, 0, 1)
         T = self.T.unsqueeze(0).expand_as(v)
 
-        # Compute Loss
-        f = 0.5 * self.norm(v * T, self.dims) / self.norm(v, self.dims)
+        # Delta
+        self.delta = self.make_penalty(fs[-self.filter_dim:], std=3e-8,
+                                       penalty_function=None,
+                                       device=recon.device, flip=True)
+        delta = self.delta.unsqueeze(0).expand_as(v)
 
-        # Penalty function -- delta
-        # self.std=1e-7
-        # delta = self.make_penalty(fs[-self.filter_dim:], flip=True, device=recon.device)# * torch.max(torch.abs(v))
-        # delta = delta.unsqueeze(0).expand_as(v)
-        # f = 0.5 * self.norm(delta - v, self.dims)
+        # Compute Loss
+        # f = 0.5 * torch.norm(v * T, p=2, dim=self.dims) / torch.norm(v, p=2, dim=self.dims)
+        f = 0.5 * torch.norm(T * (v - delta), p=2, dim=self.dims)
 
         f = f.sum()
         if self.reduction == "mean":
@@ -317,7 +319,7 @@ class AWLoss(nn.Module):
 
 
 class PixelAWLoss(nn.Module):
-    def __init__(self, reduction="sum", epsilon=3e-5) :
+    def __init__(self, reduction="sum", epsilon=3e-5):
         super(PixelAWLoss, self).__init__()
         self.reduction = reduction
         self.epsilon = epsilon
