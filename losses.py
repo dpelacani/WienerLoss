@@ -309,7 +309,6 @@ class AWLoss(nn.Module):
         delta = self.delta.unsqueeze(0).expand_as(v)
 
         # Compute Loss
-        # f = 0.5 * torch.norm(v * T, p=2, dim=self.dims) / torch.norm(v, p=2, dim=self.dims)
         f = 0.5 * torch.norm(T * (v - delta), p=2, dim=self.dims)
 
         f = f.sum()
