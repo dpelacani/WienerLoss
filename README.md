@@ -62,9 +62,11 @@ $$
 
 By minimising $L$, we implicitly drive signal $\mathbf{d}$ to become more similar to signal $\mathbf{x}$
 
-<img src="figs/scheme.png" alt="drawing" width="700"/>
+<img src="figs/scheme.png" alt="drawing" width="500"/>
 
 ## Input Arguments
+On object initialistion:
+
     Args:
         method, optional
             "fft" for Fast Fourier Transform or "direct" for the
@@ -99,6 +101,22 @@ By minimising $L$, we implicitly drive signal $\mathbf{d}$ to become more simila
             the standard deviation value of the zero-mean gaussian generated
             as a penalty function for the filter. If 'penalty_function' is
             passed this value will not be used. Default 1e-4.
+
+On object calling
+
+    Args:
+        recon
+            the reconstructed signal
+        target
+            the target signal
+        epsilon, optional
+            the stabilization value to compute the filter. If passed,
+            overwrites the class attribute of same name. Default None.
+        gamma, optional
+            noise to add to both target and reconstructed signals
+            for training stabilization. Default 0.
+        eta, optional
+            noise to add to penalty function. Default 0.
 
 ## Note on Filter Dimensions
 The `AWLoss` class supports data of dimensions up to 3, excluding the batch dimension. The filter dimension can be arbritarily chosen by the user, up until the dimension of the data itself, i.e. a 1D signal **cannot** be processed using `filter_dim` as to 2 or 3, but a 3D signal **can** be processed processed using `filter_dim` as 1, 2 or 3.
