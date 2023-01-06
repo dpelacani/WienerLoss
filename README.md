@@ -4,7 +4,10 @@ Data comparison lies at the heart of machine learning: for many applications, si
 functions - such as the L2 loss that rely on local element-wise differences between samples - have
 taken preference. Such metrics are notorious for producing low-quality results. The proposed Adaptive Wiener Loss (AWLoss) addresses this issue by introducing a new convolutional approach to data comparison; one that uses a Wiener filter approach to naturally incorporate global information and promote spatial awareness within the compared samples. 
 
-This repository contains an implementation of this loss in a natural [`Pytorch`](https://github.com/pytorch/pytorch) as here it is promoted as a loss function to drive deep learning problems.
+<img src="figs/cerebellum_samples2.png" alt="drawing" width="700"/>
+
+
+This repository contains an implementation of this loss in a natural [`Pytorch`](https://github.com/pytorch/pytorch) as here it is promoted as a loss function to drive deep learning problems. The source code is a single file that contains a single class named [`AWLoss`](awloss/awloss.py). Its usage and customisation are described below.
 
 
 ## Installation
@@ -59,7 +62,47 @@ $$
 
 By minimising $L$, we implicitly drive signal $\mathbf{d}$ to become more similar to signal $\mathbf{x}$
 
+<img src="figs/scheme.png" alt="drawing" width="700"/>
+
 ## Input Arguments
+    Args:
+        method, optional
+            "fft" for Fast Fourier Transform or "direct" for the
+            Levinson-Durbin recurssion algorithm. Defaults to "fft"
+        filter_dim, optional
+            the dimensionality of the filter. This parameter should be
+            upper-bounded by the dimensionality of the data. If data is
+            3-dimensional and filter_dim is set to 2, one filter is computed
+            per channel dimension assuming format [B, NC, H , W]. Current
+            implementation only supports filter dimensions for 1D, 2D and 3D.
+            Defaults to 2
+        filter_scale, optional
+            the scale of the filters compared to the size of the data.
+            Defaults to 2
+        reduction, optional
+            specifies the reduction to apply to the output, "mean" or "sum".
+            Defaults to mean
+        mode, optional
+            "forward" or "reverse" computation of the filter. For details of
+            the difference, refer to the original paper. Default "reverse"
+        penalty_function, optional
+            the penalty function to apply to the filter. If None, a Gaussian
+            penalty will be created of mean zero and standard deviations
+            specified below. Mutually exclusive with "std". Default None
+        store_filters, optional
+            whether to store the filters in memory, useful for debugging.
+            Option to store the filers before or after normalisation with
+            "norm" and "unorm". Default False.
+        epsilon, optional
+            the stabilization value to compute the filter. Default 1e-4.
+        std, optional
+            the standard deviation value of the zero-mean gaussian generated
+            as a penalty function for the filter. If 'penalty_function' is
+            passed this value will not be used. Default 1e-4.
 
+## Note on Filter Dimensions
+The `AWLoss` class supports data of dimensions up to 3, excluding the batch dimension. The filter dimension can be arbritarily chosen by the user, up until the dimension of the data itself, i.e. a 1D signal **cannot** be processed using `filter_dim` as to 2 or 3, but a 3D signal **can** be processed processed using `filter_dim` as 1, 2 or 3.
 
-## Filter Dimensions
+Using the 1D version of the AWLoss flattens the signal before evaluation in all dimensions apart from the batch dimension; in the 2D implementation, a single 2D filter is computed for each channel of the data; and in 3D a single 3D filter is calculated **using the number of channels as the third dimensionality.**
+
+Further improvements to this code will allow dimensions up to 4, where the first dimension is the number of channels and the following 3 are the volumetric data. In such, this would calculate one 3D filter per channel in the signal.
