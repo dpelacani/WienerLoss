@@ -7,7 +7,7 @@ taken preference. Such metrics are notorious for producing low-quality results. 
 <img src="figs/cerebellum_samples2.png" alt="drawing" width="700"/>
 
 
-This repository contains an implementation of this loss in a natural [`Pytorch`](https://github.com/pytorch/pytorch) as here it is promoted as a loss function to drive deep learning problems. The source code is a single file that contains a single class named `AWLoss`. Its usage and customisation are described below.
+This repository contains an implementation of this loss in a natural [`Pytorch`](https://github.com/pytorch/pytorch) as here it is promoted as a loss function to drive deep learning problems. The source code is a single file that contains a single class named [`AWLoss`](awloss/awloss.py). Its usage and customisation are described below.
 
 
 ## Installation
