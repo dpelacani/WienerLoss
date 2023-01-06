@@ -1,0 +1,17 @@
+dill==0.3.5.1
+fonttools==4.25.0
+imageio==2.22.1
+ipykernel
+ipython
+lpips==0.1.4
+matplotlib
+memory-profiler==0.60.0
+monai==0.8.1
+mpl-interactions==0.22.0
+pandas==1.4.2
+Pillow
+pycm==3.5
+scikit-image==0.19.3
+scikit-learn
+scipy
+numpy
