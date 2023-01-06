@@ -7,7 +7,11 @@ tests/.ipynb_checkpoints
 examples/imputation/comparison2D/plot.ipynb
 examples/imputation/comparison2D.tar.gz
 
+# Unfinished examples
+examples/imputation/MRI3D_interpolation.ipynb
+examples/imputation/MRI3D_interpolation.ipynb
 
 # Distribution files
 dist/
 pypi-token.txt
+
