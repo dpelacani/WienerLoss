@@ -4,10 +4,14 @@ Data comparison lies at the heart of machine learning: for many applications, si
 functions - such as the L2 loss that rely on local element-wise differences between samples - have
 taken preference. Such metrics are notorious for producing low-quality results. The proposed Adaptive Wiener Loss (AWLoss) addresses this issue by introducing a new convolutional approach to data comparison; one that uses a Wiener filter approach to naturally incorporate global information and promote spatial awareness within the compared samples. 
 
-<img src="figs/cerebellum_samples2.png" alt="drawing" width="700"/>
-
 
 This repository contains an implementation of this loss in a natural [`Pytorch`](https://github.com/pytorch/pytorch) as here it is promoted as a loss function to drive deep learning problems. The source code is a single file that contains a single class named [`AWLoss`](awloss/awloss.py). Its usage and customisation are described below.
+
+A demonstration of this loss in a deep learning context is shown in the following figure for a medical data imputation problem:
+
+<img src="figs/cerebellum_samples2.png" alt="drawing" width="700"/>
+
+In the figure, (e) and (f) are obtained through the training of a UNet.
 
 
 ## Installation
