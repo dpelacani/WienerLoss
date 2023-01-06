@@ -1,25 +1,8 @@
-import os
-import sys 
-sys.path.append('../AWLoss')
-
 import torch
-from torchvision.transforms import Compose, Resize, Lambda, Normalize
-from torch.utils.data import DataLoader, Subset
-from monai.networks.nets import UNet
-
-from examples.networks import *
-from awloss import AWLoss
-from examples.datasets import MaskedUltrasoundDataset2D
-from examples.landscape import *
-
-
 import matplotlib.pyplot as plt
 import matplotlib.colors as clt
-import progressbar
 import random
 import numpy as np
-
-from saving import *
 
 
 def set_seed(seed):
@@ -97,6 +80,7 @@ def create_mask(size, width, spacing):
     m[idmesh] = 0.
     return m
    
+
 def train(model, train_loader, optimizer, criterion, scheduler=None, device="cpu"):
     """ Trains one epoch """
     model.train()

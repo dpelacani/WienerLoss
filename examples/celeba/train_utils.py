@@ -1,7 +1,6 @@
 import os
 import json
 import pathlib
-import sched
 import dill
 import pickle
 
@@ -10,7 +9,6 @@ import numpy as np
 import progressbar
 from torchvision.utils import make_grid
 
-from pycm import *
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 
@@ -29,38 +27,40 @@ def load_pickle(filename):
     return obj
 
 
-def save_exp(objs={}, figs={}, summary="", path=None, overwrite=False, verbose=False):
+def save_exp(objs={}, figs={}, summary="", path=None,
+             overwrite=False, verbose=False):
     # Create folder to save experiment
     if path is None:
         cnt = 0
-        path = pathlib.Path("./exps/exp%g/"%cnt)
+        path = pathlib.Path("./exps/exp%g/" % cnt)
         if not overwrite:
             while path.exists():
                 cnt += 1
-                path = pathlib.Path("./exps/exp%g"%cnt)
+                path = pathlib.Path("./exps/exp%g" % cnt)
     else:
         path = pathlib.Path(path)
 
-    assert (not path.exists() or overwrite), "%s already exists"%path.resolve()
+    assert (not path.exists() or overwrite), \
+        "%s already exists" % path.resolve()
     try:
         os.mkdir(path)
     except:
         pass
 
     if verbose:
-        print("Saving experiment at %s ..."%path.resolve())
+        print("Saving experiment at %s ..." % path.resolve())
 
     for name, obj in objs.items():
-        filename = path / pathlib.Path("%s.pkl"%name)
+        filename = path / pathlib.Path("%s.pkl" % name)
         save_pickle(obj, filename.resolve())
         if verbose:
-            print("\t %s"%filename)
+            print("\t %s" % filename)
 
     for name, fig in figs.items():
-        filename = path / pathlib.Path("%s.png"%name)
+        filename = path / pathlib.Path("%s.png" % name)
         fig.savefig(filename, facecolor='w', transparent=False)
         if verbose:
-            print("\t %s"%filename)
+            print("\t %s" % filename)
 
     with open(path / pathlib.Path("summary.json"), 'w') as f:
         summary["exp"] = path.parts[-1]
@@ -80,13 +80,14 @@ def load_exp(path):
     return exp
 
 
-def train(model, dataloader, optimizer, criterion, scheduler=None, device="cpu"):
+def train(model, dataloader, optimizer, criterion,
+          scheduler=None, device="cpu"):
     """ Trains one epoch of a dataloader of an autoencoder """
     model.train()
-    
-    total_loss, total_kl = 0., 0.,
 
-    for i , (X, _) in enumerate(dataloader):
+    total_loss = 0.
+
+    for _, (X, _) in enumerate(dataloader):
         X = X.to(device)
         optimizer.zero_grad()
 
@@ -94,20 +95,21 @@ def train(model, dataloader, optimizer, criterion, scheduler=None, device="cpu")
         recon = model(X)
 
         # Evaluate losses
-        loss  = criterion(recon, X)
+        loss = criterion(recon, X)
 
         # Backprop and take step
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()  
-        
+        optimizer.zero_grad()
+
         # Keep track of total losses
         total_loss += loss.sum() / len(dataloader)
 
     if scheduler:
         scheduler.step()
-    
+
     return total_loss
+
 
 def validate(model, dataloader, criterion, device="cpu"):
     """ Validates loss of a data loader of an autoencoder """
@@ -115,21 +117,22 @@ def validate(model, dataloader, criterion, device="cpu"):
     total_loss = 0.
 
     with torch.no_grad():
-        for i , (X, _) in enumerate(dataloader):
+        for _, (X, _) in enumerate(dataloader):
             X = X.to(device)
-            
+
             # Reconstructed images from forward pass
             recon = model(X)
 
             # Evaluate losses
-            loss  = criterion(recon, X)
-            
-            total_loss += loss.sum()/ len(dataloader)
+            loss = criterion(recon, X)
+
+            total_loss += loss.sum() / len(dataloader)
     return total_loss
 
 
-def train_model(model, optimizer, train_loader, valid_loader, loss, nepochs=150, log_frequency=10, 
-                scheduler=None, device="cpu", gradflow=False, save=False, fcmap="seismic", summary_app={}):
+def train_model(model, optimizer, train_loader, valid_loader, loss,
+                nepochs=150, log_frequency=10, scheduler=None, device="cpu",
+                gradflow=False, save=False, fcmap="seismic", summary_app={}):
 
     # Sample for visualisation:
     try:
@@ -140,23 +143,25 @@ def train_model(model, optimizer, train_loader, valid_loader, loss, nepochs=150,
     # Training loop
     print("\n\nTraining started ...")
     all_train_losses, all_valid_losses = [], []
-    with progressbar.ProgressBar(max_value=nepochs) as bar:    
+    with progressbar.ProgressBar(max_value=nepochs) as bar:
         for epoch in range(nepochs):
             bar.update(epoch)
 
             # Train and validate epoch
-            train_loss = train(model, train_loader, optimizer, loss, scheduler, device)
+            train_loss = train(model, train_loader, optimizer,
+                               loss, scheduler, device)
             all_train_losses.append(train_loss.item())
             if valid_loader:
                 valid_loss = validate(model, valid_loader, loss, device)
                 all_valid_losses.append(valid_loss.item())
-            
+
             # Logging
             log = {"epoch": epoch, "train_loss": train_loss.item()}
             if valid_loader:
                 log.update({"valid_loss": valid_loss.item()})
 
-            if (epoch == 0 or epoch % log_frequency == 0 or epoch==nepochs-1):
+            if (epoch == 0 or epoch % log_frequency == 0
+                    or epoch == nepochs-1):
                 print("\n", log)
 
                 # Show batch reconstruction and filters
@@ -169,53 +174,60 @@ def train_model(model, optimizer, train_loader, valid_loader, loss, nepochs=150,
                 except:
                     v = torch.zeros_like(recon)
 
-                sample_fig = show_grid(sample_batch=sample_batch, recon=recon, filters=v,
-                            figsize=(5*sample_batch.shape[0], 15))
-                losses_fig = plot_losses(losses={"train": all_train_losses, "valid":all_valid_losses})
-                
+                sample_fig = show_grid(sample_batch=sample_batch,
+                                       recon=recon,
+                                       filters=v,
+                                       figsize=(5*sample_batch.shape[0], 15))
+                losses_fig = plot_losses(losses={"train": all_train_losses,
+                                         "valid": all_valid_losses})
+
                 if gradflow:
                     grad_fig = plot_grad_flow(model.named_parameters())
 
-
                 # Prepare dictionaries for saving
                 if save:
-                    figs = {"losses":losses_fig, "samples":sample_fig}       # Saves png
+                    # Saves png
+                    figs = {"losses": losses_fig, "samples":sample_fig}
                     if gradflow: figs.update({"gradflow": grad_fig})
-                    
-                    objs = {"train_loader":train_loader,                     # Saves pkl
-                        "valid_loader":valid_loader,
-                        "sample_batch": sample_batch,
-                        "recon": recon,
-                        "model": model,
-                        "optim": optimizer,
-                        "loss": loss,
-                        "train_losses": all_train_losses,
-                        "vald_losses": all_valid_losses,
-                        }
 
-                    summary = {"model_name": type(model.module).__name__,     # Saves json
-                        "loss": str(loss),
-                        "img_size": sample_batch[0].detach().cpu().numpy().shape,
-                        "device":device,
-                        "nepochs": nepochs,
-                        "current_epoch":epoch, 
-                        "learning_rate":optimizer.defaults["lr"],
-                        "batch_size":train_loader.batch_size,
-                        "ntrain": len(train_loader.dataset),
-                        "nvalid": len(valid_loader.dataset) if valid_loader is not None else None}
+                    # Saves pkl
+                    objs = {"train_loader": train_loader,
+                            "valid_loader": valid_loader,
+                            "sample_batch": sample_batch,
+                            "recon": recon,
+                            "model": model,
+                            "optim": optimizer,
+                            "loss": loss,
+                            "train_losses": all_train_losses,
+                            "vald_losses": all_valid_losses,
+                            }
+
+                    # Saves json
+                    summary = {"model_name": type(model.module).__name__,
+                               "loss": str(loss),
+                               "img_size": sample_batch[0].detach().cpu().numpy().shape,
+                               "device": device,
+                               "nepochs": nepochs,
+                               "current_epoch": epoch, 
+                               "learning_rate": optimizer.defaults["lr"],
+                               "batch_size": train_loader.batch_size,
+                               "ntrain": len(train_loader.dataset),
+                               "nvalid": len(valid_loader.dataset) if
+                               valid_loader is not None else None}
                     summary.update(summary_app)
 
                     # Save
                     if epoch == 0:
-                        p = save_exp(objs=objs, figs=figs, summary=summary, 
-                                path=None, overwrite=False)
+                        p = save_exp(objs=objs, figs=figs, summary=summary,
+                                     path=None, overwrite=False)
                     else:
-                        p = save_exp(objs=objs, figs=figs, summary=summary, 
-                                path=p, overwrite=True)
+                        p = save_exp(objs=objs, figs=figs, summary=summary,
+                                     path=p, overwrite=True)
 
 
 def scale2range(x, range=[-1, 1]):
-    return (x - x.min()) * (max(range) - min(range)) / (x.max() - x.min()) + min(range)            
+    x_n = (x - x.min()) * (max(range) - min(range)) / (x.max() - x.min()) + min(range)
+    return x_n    
 
 
 def show_grid(sample_batch, recon, filters, figsize=(10, 15), fcmap="seismic"):
@@ -230,6 +242,7 @@ def show_grid(sample_batch, recon, filters, figsize=(10, 15), fcmap="seismic"):
     plt.show()
     return fig
 
+
 def plot_losses(losses={}, title=""):
     fig = plt.figure(figsize=(6, 6))
     for label, loss in losses.items():
@@ -241,20 +254,24 @@ def plot_losses(losses={}, title=""):
     plt.show()
     return fig
 
+
 def plot_grad_flow(named_parameters):
     '''
     https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10
 
-    Plots the gradients flowing through different layers in the net during training.
-    Can be used for checking for possible gradient vanishing / exploding problems.
-    
-    Usage: Plug this function in Trainer class after loss.backwards() as 
-    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+    Plots the gradients flowing through different layers in the net
+    during training. Can be used for checking for possible gradient
+    vanishing / exploding problems.
+
+    Usage: Plug this function in Trainer class after loss.backwards() as
+    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient
+    flow'''
+
     ave_grads = []
-    max_grads= []
+    max_grads = []
     layers = []
     for n, p in named_parameters:
-        if(p.requires_grad) and ("bias" not in n):
+        if (p.requires_grad) and ("bias" not in n):
             layers.append(n)
             ave_grads.append(p.grad.abs().mean().detach().cpu())
             max_grads.append(p.grad.abs().max().detach().cpu())
@@ -262,16 +279,17 @@ def plot_grad_flow(named_parameters):
     fig = plt.figure(figsize=(8, 5))
     plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.3, lw=1, color="c")
     plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.3, lw=1, color="b")
-    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
-    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k")
+    plt.xticks(range(0, len(ave_grads), 1), layers, rotation="vertical")
     plt.xlim(left=0, right=len(ave_grads))
-    plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+    plt.ylim(bottom=-0.001, top=0.02)  # zoom in on the lower gradient regions
     plt.xlabel("Layers")
     plt.ylabel("average gradient")
     plt.title("Gradient flow")
     plt.grid(True)
     plt.legend([Line2D([0], [0], color="c", lw=4),
                 Line2D([0], [0], color="b", lw=4),
-                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+                Line2D([0], [0], color="k", lw=4)],
+                ['max-gradient', 'mean-gradient', 'zero-gradient'])
     plt.show()
     return fig
