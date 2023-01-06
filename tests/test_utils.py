@@ -8,7 +8,7 @@ from scipy import signal
 
 from networks import *
 from utils import *
-from losses import *
+from awloss import *
 
 import matplotlib.pyplot as plt
 from matplotlib import cm

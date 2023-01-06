@@ -10,7 +10,7 @@ import cpuinfo
 import itertools
 
 
-from losses import *
+from awloss import *
 from utils import set_device, set_seed
 
 

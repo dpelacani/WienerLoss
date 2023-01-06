@@ -1,14 +1,17 @@
-notebooks/mnist_example/MNIST/
-notebooks/cifar10_example/cifar-10-batches-py/
-images/
-notebooks/cifar10_example/cifar-10-python.tar.gz
-wandb/
-.vscode/
-.DS_Store
-.ipynb_checkpoints/
+# Example files
 examples/data/
 examples/autoencoder/.ipynb_checkpoints
+examples/celeba/exps
 performance/.ipynb_checkpoints
 tests/.ipynb_checkpoints
-tests/AWLoss.code-workspace
-.ipynb_checkpoints
+examples/imputation/comparison2D/plot.ipynb
+examples/imputation/comparison2D.tar.gz
+
+# Unfinished examples
+examples/imputation/MRI3D_interpolation.ipynb
+examples/imputation/MRI3D_interpolation.ipynb
+
+# Distribution files
+dist/
+pypi-token.txt
+
