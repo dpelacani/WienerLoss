@@ -138,9 +138,6 @@ class AWLoss(nn.Module):
         self.T = None
         self.current_epoch = 0
 
-    def norm(self, A, dim=()):
-        return torch.sqrt(torch.sum(A**2, dim=dim))
-
     def make_toeplitz(self, a):
         "Makes toeplitz matrix of a vector A"
         h = a.size(0)
