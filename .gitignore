@@ -16,4 +16,4 @@ dist/
 pypi-token.txt
 
 # Developing tools
-devtests/
+dev/

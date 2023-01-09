@@ -91,7 +91,7 @@ def make_odd(x):
 #                          IDENTITY TEST FUNCTIONS                            #
 ###############################################################################
 
-def test_identity(nc, awloss):
+def check_identity(nc, awloss):
     # Create variable
     bs = torch.randint(size=(1,), low=1, high=8)
     n = torch.randint(size=(1,), low=2, high=32)
@@ -121,7 +121,7 @@ def test_fft_1d_identity():
     awloss = AWLoss(method="fft", filter_dim=1, filter_scale=4,
                     reduction="mean", mode="reverse", penalty_function=None,
                     store_filters="unorm", epsilon=0.,  std=1e-4)
-    test_identity(nc, awloss)
+    check_identity(nc, awloss)
 
 
 def test_fft_2d_identity():
@@ -129,7 +129,7 @@ def test_fft_2d_identity():
     awloss = AWLoss(method="fft", filter_dim=2, filter_scale=4,
                     reduction="mean", mode="reverse", penalty_function=None,
                     store_filters="unorm", epsilon=0.,  std=1e-4)
-    test_identity(nc, awloss)
+    check_identity(nc, awloss)
 
 
 def test_fft_3d_identity():
@@ -137,7 +137,7 @@ def test_fft_3d_identity():
     awloss = AWLoss(method="fft", filter_dim=3, filter_scale=4,
                     reduction="mean", mode="reverse", penalty_function=None,
                     store_filters="unorm", epsilon=0.,  std=1e-4)
-    test_identity(nc, awloss)
+    check_identity(nc, awloss)
 
 
 def test_lr_1d_identity():
@@ -145,7 +145,7 @@ def test_lr_1d_identity():
     awloss = AWLoss(method="direct", filter_dim=1, filter_scale=4,
                     reduction="mean", mode="reverse", penalty_function=None,
                     store_filters="unorm", epsilon=0.,  std=1e-4)
-    test_identity(nc, awloss)
+    check_identity(nc, awloss)
 
 
 def test_lr_2d_identity():
@@ -153,14 +153,14 @@ def test_lr_2d_identity():
     awloss = AWLoss(method="direct", filter_dim=2, filter_scale=4,
                     reduction="mean", mode="reverse", penalty_function=None,
                     store_filters="unorm", epsilon=0.,  std=1e-4)
-    test_identity(nc, awloss)
+    check_identity(nc, awloss)
 
 
 ###############################################################################
 #                             LAG TEST FUNCTIONS                              #
 ###############################################################################
 
-def test_lag(awloss):
+def check_lag(awloss):
     # Properties of the square image
     lag = list(torch.randint(size=(2,), low=-16, high=16))
     lag = torch.tensor([make_even(x) for x in lag])
@@ -218,26 +218,26 @@ def test_lag(awloss):
 def test_fft_1d_lag():
     awloss = AWLoss(epsilon=3e-5, store_filters="unorm", method="fft",
                     filter_dim=1)
-    test_lag(awloss)
+    check_lag(awloss)
 
 
 def test_fft_2d_lag():
     awloss = AWLoss(epsilon=3e-5, store_filters="unorm", method="fft",
                     filter_dim=2)
-    test_lag(awloss)
+    check_lag(awloss)
 
 
 def test_fft_3d_lag():
     awloss = AWLoss(epsilon=3e-5, store_filters="unorm", method="fft",
                     filter_dim=3)
-    test_lag(awloss)
+    check_lag(awloss)
 
 
 ###############################################################################
 #                       RECONSTRUCTION TEST FUNCTIONS                         #
 ###############################################################################
 
-def test_recon(awloss):
+def check_recon(awloss):
     # Input and target data
     nc = 3
     bs = 1
@@ -276,19 +276,20 @@ def test_recon(awloss):
 def test_fft_1d_recon():
     awloss = AWLoss(epsilon=1e-4, store_filters="unorm", method="fft",
                     filter_dim=1, filter_scale=2)
-    test_recon(awloss)
+    check_recon(awloss)
 
 
 def test_fft_2d_recon():
     awloss = AWLoss(epsilon=1e-4, store_filters="unorm", method="fft",
                     filter_dim=2, filter_scale=2)
-    test_recon(awloss)
+    check_recon(awloss)
 
 
 def test_fft_3d_recon():
     awloss = AWLoss(epsilon=1e-4, store_filters="unorm", method="fft",
                     filter_dim=3, filter_scale=2)
-    test_recon(awloss)
+    check_recon(awloss)
+
 
 if __name__ == "__main__":
     print("test_fft_1d_identity()")
