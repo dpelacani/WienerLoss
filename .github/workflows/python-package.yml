@@ -35,7 +35,3 @@ jobs:
     - name: Test with pytest
       run: |
         pytest
-Footer
-© 2023 GitHub, Inc.
-Footer navigation
-Terms
