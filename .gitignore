@@ -15,3 +15,5 @@ examples/imputation/MRI3D_interpolation.ipynb
 dist/
 pypi-token.txt
 
+# Developing tools
+devtests/
