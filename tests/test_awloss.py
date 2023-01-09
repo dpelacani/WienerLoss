@@ -1,11 +1,34 @@
 import torch
 import numpy as np
 from awloss import AWLoss
+from scipy import signal
 
 
 ###############################################################################
 #                             UTILITY FUNCTIONS                               #
 ###############################################################################
+
+def get_middle_arr(arr, length):
+    len_arr = len(arr)
+    start = int(len_arr/2) - int(length/2)
+    return arr[start:start+length]
+
+
+def get_middle_arr2d(img, shape):
+    x_len, y_len = shape[0], shape[1]
+    x_start = int(img.shape[0]/2) - int(x_len/2)
+    y_start = int(img.shape[1]/2) - int(y_len/2)
+    return img[x_start:x_start+x_len, y_start:y_start+y_len]
+
+
+def get_middle_arr3d(img, shape):
+    c_len, x_len, y_len = shape[0], shape[1], shape[2]
+    c_start = int(img.shape[0]/2) - int(c_len/2)
+    x_start = int(img.shape[1]/2) - int(x_len/2)
+    y_start = int(img.shape[2]/2) - int(y_len/2)
+    return img[c_start:c_start+c_len, x_start:x_start+x_len,
+               y_start:y_start+y_len]
+
 
 def square_img(shape, lag=(0, 0), fill_val=0, square_val=1., radius=1.):
     im = torch.zeros(shape) + fill_val
@@ -50,16 +73,6 @@ def make_delta(shape):
     return delta
 
 
-def unravel_index(index, shape):
-    """https://discuss.pytorch.org/t/how-to-do-a-unravel-index-in-pytorch-
-    just-like-in-numpy/12987/3"""
-    out = []
-    for dim in reversed(shape):
-        out.append(index % dim)
-        index = index // dim
-    return tuple(reversed(out))
-
-
 def make_even(x):
     if x % 2 == 0:
         return x
@@ -72,10 +85,6 @@ def make_odd(x):
         return x
     else:
         return x - 1
-
-
-def peak(shape):
-    return None
 
 
 ###############################################################################
@@ -224,6 +233,63 @@ def test_fft_3d_lag():
     test_lag(awloss)
 
 
+###############################################################################
+#                       RECONSTRUCTION TEST FUNCTIONS                         #
+###############################################################################
+
+def test_recon(awloss):
+    # Input and target data
+    nc = 3
+    bs = 1
+    n = torch.randint(size=(1,), low=8, high=32).item()
+    input = torch.randn(size=(bs, nc, n, n))
+    target = torch.randn(size=(bs, nc, n, n))
+
+    # Evaluate loss, retrieve filters
+    awloss(input, target)
+    filters = awloss.filters
+
+    # Reconstruct target by convolving input with filter
+    recon = np.zeros_like(input)
+
+    if awloss.filter_dim == 1:
+        for i in range(bs):
+            r = signal.convolve(target[i].flatten(start_dim=0), filters[i],
+                                mode="full")
+            recon[i] = get_middle_arr(r, nc * n * n).reshape(nc, n, n)
+
+    elif awloss.filter_dim == 2:
+        for i in range(bs):
+            for j in range(nc):
+                r = signal.convolve2d(target[i, j], filters[i, j])
+                recon[i, j] = get_middle_arr2d(r, (n, n))
+
+    elif awloss.filter_dim == 3:
+        for i in range(bs):
+            r = signal.convolve(target[i], filters[i])
+            recon[i] = get_middle_arr3d(r, (nc, n, n))
+
+    recon = torch.from_numpy(recon)
+    assert torch.allclose(recon, input, atol=5e-1)
+
+
+def test_fft_1d_recon():
+    awloss = AWLoss(epsilon=1e-4, store_filters="unorm", method="fft",
+                    filter_dim=1, filter_scale=2)
+    test_recon(awloss)
+
+
+def test_fft_2d_recon():
+    awloss = AWLoss(epsilon=1e-4, store_filters="unorm", method="fft",
+                    filter_dim=2, filter_scale=2)
+    test_recon(awloss)
+
+
+def test_fft_3d_recon():
+    awloss = AWLoss(epsilon=1e-4, store_filters="unorm", method="fft",
+                    filter_dim=3, filter_scale=2)
+    test_recon(awloss)
+
 if __name__ == "__main__":
     print("test_fft_1d_identity()")
     test_fft_1d_identity()
@@ -255,4 +321,16 @@ if __name__ == "__main__":
 
     print("test_fft_3d_lag()")
     test_fft_3d_lag()
+    print("done!")
+
+    print("test_fft_1d_recon()")
+    test_fft_1d_recon()
+    print("done!")
+
+    print("test_fft_2d_recon()")
+    test_fft_2d_recon()
+    print("done!")
+
+    print("test_fft_3d_recon()")
+    test_fft_3d_recon()
     print("done!")
