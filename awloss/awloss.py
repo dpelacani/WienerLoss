@@ -138,9 +138,6 @@ class AWLoss(nn.Module):
         self.T = None
         self.current_epoch = 0
 
-    def norm(self, A, dim=()):
-        return torch.sqrt(torch.sum(A**2, dim=dim))
-
     def make_toeplitz(self, a):
         "Makes toeplitz matrix of a vector A"
         h = a.size(0)
@@ -333,20 +330,19 @@ class AWLoss(nn.Module):
         '''> The function takes in a reconstructed signal, a target signal,
         and a few other parameters, and returns the loss
 
-        Parameters
-        ----------
-        recon
-            the reconstructed signal
-        target
-            the target signal
-        epsilon, optional
-            the stabilization value to compute the filter. If passed,
-            overwrites the class attribute of same name. Default None.
-        gamma, optional
-            noise to add to both target and reconstructed signals
-            for training stabilization. Default 0.
-        eta, optional
-            noise to add to penalty function. Default 0.
+        Args
+            recon
+                the reconstructed signal
+            target
+                the target signal
+            epsilon, optional
+                the stabilization value to compute the filter. If passed,
+                overwrites the class attribute of same name. Default None.
+            gamma, optional
+                noise to add to both target and reconstructed signals
+                for training stabilization. Default 0.
+            eta, optional
+                noise to add to penalty function. Default 0.
 
         '''
 
