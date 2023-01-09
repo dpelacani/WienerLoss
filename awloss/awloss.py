@@ -241,7 +241,7 @@ class AWLoss(nn.Module):
                      flip=False,  device="cpu"):
         arr = [torch.linspace(-1., 1., n, requires_grad=True).to(device)
                for n in shape]
-        mesh = torch.meshgrid(arr)
+        mesh = torch.meshgrid(arr, indexing="ij")
         mesh = torch.stack(mesh, axis=-1)
         if penalty_function is None:
             mean = torch.tensor([0. for i in range(mesh.shape[-1])]).to(device)
