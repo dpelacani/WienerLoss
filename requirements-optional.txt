@@ -17,3 +17,5 @@ numpy
 progressbar2
 scikit-image
 plotly
+flake8
+pytest
