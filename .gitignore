@@ -17,3 +17,5 @@ pypi-token.txt
 
 # Developing tools
 dev/
+
+*.pyc
