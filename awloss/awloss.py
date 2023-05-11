@@ -264,7 +264,6 @@ class AWLoss(nn.Module):
         assert x.shape == y.shape, "signals x and y must be the same shape"
         
         # Cross-correlation of x with y
-        print("Check new")
         Fccorr = torch.fft.fftn(x, dim=self.dims)\
             * torch.conj(torch.fft.fftn(y, dim=self.dims))
 
