@@ -264,12 +264,13 @@ class AWLoss(nn.Module):
         assert x.shape == y.shape, "signals x and y must be the same shape"
         
         # Cross-correlation of x with y
-        Fccorr = torch.fft.fftn(torch.flip(x, self.dims), dim=self.dims)\
-            * torch.fft.fftn(y, dim=self.dims)
+        print("Check new")
+        Fccorr = torch.fft.fftn(x, dim=self.dims)\
+            * torch.conj(torch.fft.fftn(y, dim=self.dims))
 
         # Auto-correlation of x
-        Facorr = torch.fft.fftn(torch.flip(x, self.dims), dim=self.dims)\
-            * torch.fft.fftn(x, dim=self.dims)
+        Facorr = torch.fft.fftn(x, dim=self.dims)\
+            * torch.conj(torch.fft.fftn(x, dim=self.dims))
 
         # Deconvolution of Fccorr by Facorr
         Fdconv = (Fccorr + prwh) / (Facorr + prwh)
