@@ -262,6 +262,7 @@ class AWLoss(nn.Module):
         transforms signal x into signal y using FFT
         """
         assert x.shape == y.shape, "signals x and y must be the same shape"
+        
         # Cross-correlation of x with y
         Fccorr = torch.fft.fftn(torch.flip(x, self.dims), dim=self.dims)\
             * torch.fft.fftn(y, dim=self.dims)
