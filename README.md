@@ -128,3 +128,20 @@ The `AWLoss` class supports data of dimensions up to 3, excluding the batch dime
 Using the 1D version of the AWLoss flattens the signal before evaluation in all dimensions apart from the batch dimension; in the 2D implementation, a single 2D filter is computed for each channel of the data; and in 3D a single 3D filter is calculated **using the number of channels as the third dimensionality.**
 
 Further improvements to this code will allow dimensions up to 4, where the first dimension is the number of channels and the following 3 are the volumetric data. In such, this would calculate one 3D filter per channel in the signal.
+
+
+## Citation
+
+If you use the Wiener Loss in your research, please cite our [paper](
+https://doi.org/10.48550/arXiv.2311.06558):
+
+```
+@misc{cruz2023convolve,
+      title={Convolve and Conquer: Data Comparison with Wiener Filters}, 
+      author={Deborah Pelacani Cruz and George Strong and Oscar Bates and Carlos Cueto and Jiashun Yao and Lluis Guasch},
+      year={2023},
+      eprint={2311.06558},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}
+```
