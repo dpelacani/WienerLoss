@@ -6,9 +6,7 @@ from math import floor
 
 class AWLoss(nn.Module):
     """The AWLoss class implements the adaptive Wiener criterion, which
-    aims to compare two data samples through a convolutional filter. The
-    methodology is inspired by the paper `Adaptive Waveform Inversion:
-    Theory`_ (Warner and Guasch, 2014).
+    aims to compare two data samples through a convolutional filter.
 
     A matching filter `w` can be computed such that it transforms
     a targetsignal `p` into the data `d` under an L2 norm principle:
@@ -82,9 +80,6 @@ class AWLoss(nn.Module):
             the standard deviation value of the zero-mean gaussian generated
             as a penalty function for the filter. If 'penalty_function' is
             passed this value will not be used. Default 1e-4.
-
-    .. _Adaptive Waveform Inversion\: Theory:
-        https://www.s-cube.com/media/1204/segam2014-03712e1.pdf
 
         """
     def __init__(self, method="fft", filter_dim=2, filter_scale=2,
