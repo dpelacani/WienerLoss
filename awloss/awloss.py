@@ -89,7 +89,7 @@ class AWLoss(nn.Module):
         """
     def __init__(self, method="fft", filter_dim=2, filter_scale=2,
                  reduction="mean", mode="reverse", penalty_function=None,
-                 store_filters=False, epsilon=1e-4,  std=1e-4):
+                 store_filters=False, epsilon=1e-4,  std=1e-4, clamp_min=None):
 
         super(AWLoss, self).__init__()
 
@@ -99,6 +99,7 @@ class AWLoss(nn.Module):
         self.filter_scale = filter_scale
         self.penalty_function = penalty_function
         self.mode = mode
+        self.clamp_min = clamp_min
 
         # Check arguments
         if store_filters in ["norm", "unorm"] or store_filters is False:
@@ -381,6 +382,9 @@ class AWLoss(nn.Module):
                 v = self.wiener(target, recon, fs, epsilon)
             if self.mode == "forward":
                 v = self.wiener(recon, target, fs, epsilon)
+
+        if self.clamp_min is not None:
+            v = torch.clamp(v, min=self.clamp_min)
 
         # Normalise filter and store if prompted
         if self.store_filters == "unorm":
