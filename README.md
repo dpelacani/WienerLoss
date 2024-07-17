@@ -16,7 +16,7 @@ In the figure, (e) and (f) are obtained through the training of a UNet.
 
 ## Installation
 ```
-git clone https://github.com/dekape/WienerLoss.git
+git clone https://github.com/dpelacani/WienerLoss.git
 cd WienerLoss
 
 # create conda environment (recommended)
