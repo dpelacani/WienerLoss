@@ -16,12 +16,12 @@ In the figure, (e) and (f) are obtained through the training of a UNet.
 
 ## Installation
 ```
-git clone https://github.com/dekape/AWLoss.git
-cd AWLoss
+git clone https://github.com/dekape/WienerLoss.git
+cd WienerLoss
 
 # create conda environment (recommended)
-conda create --name awloss
-conda activate awloss
+conda create --name wiener
+conda activate wiener
 
 # install dependencies
 pip install -r requirements.txt
@@ -36,16 +36,16 @@ pip install -e .
 ## Example usage
 ```
 import torch
-from awloss import AWLoss
+from wiener_loss import WienerLoss
 
-awloss = AWLoss()
+wiener_loss = WienerLoss()
 x = torch.rand([1, 3, 28, 28])
 y = torch.rand([1, 3, 28, 28])
 
-awloss(x, y)
+wiener_loss(x, y)
 >> tensor(1.4073, grad_fn=<DivBackward0>)
 
-awloss(x, x)
+wiener_loss(x, x)
 >> tensor(0., grad_fn=<DivBackward0>)
 ```
 
