@@ -3,12 +3,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "awloss"
-version = "0.0.1"
+name = "wiener-loss"
+version = "0.0.2"
 authors = [
-  { name="Deborah Pelacani Cruz", email="dp4018@ic.ac.uk" },
+  { name="Deborah Pelacani Cruz", email="deborah.pelacani@gmail.com" },
 ]
-description = "Pytorch implementation of the adaptive wiener loss as a criterion class"
+description = "Pytorch implementation of the Wiener loss as a criterion class"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
@@ -18,4 +18,4 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/dekape/AWLoss"
+"Homepage" = "https://github.com/dekape/WienerLoss"

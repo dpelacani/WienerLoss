@@ -4,7 +4,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from math import floor
 
 
-class AWLoss(nn.Module):
+class WienerLoss(nn.Module):
     """The AWLoss class implements the adaptive Wiener criterion, which
     aims to compare two data samples through a convolutional filter. The
     methodology is inspired by the paper `Adaptive Waveform Inversion:
@@ -89,7 +89,7 @@ class AWLoss(nn.Module):
                  reduction="mean", mode="reverse", penalty_function=None,
                  store_filters=False, epsilon=1e-4,  std=1e-4, clamp_min=None):
 
-        super(AWLoss, self).__init__()
+        super(WienerLoss, self).__init__()
 
         # Store arguments
         self.epsilon = epsilon
@@ -134,7 +134,7 @@ class AWLoss(nn.Module):
 
         # Variables to store metadata
         self.filters = None
-        self.T = None
+        self.W = None
         self.current_epoch = 0
 
     def make_toeplitz(self, a):
@@ -407,10 +407,10 @@ class AWLoss(nn.Module):
             self.filters = v[:] / vnorm
 
         # Penalty function
-        self.T = self.make_penalty(shape=fs[-self.filter_dim:], std=self.std,
+        self.W = self.make_penalty(shape=fs[-self.filter_dim:], std=self.std,
                                    eta=eta, device=recon.device, flip=True,
                                    penalty_function=self.penalty_function)
-        T = self.T.unsqueeze(0).expand_as(v)
+        W = self.W.unsqueeze(0).expand_as(v)
 
         # Delta
         self.delta = self.make_penalty(fs[-self.filter_dim:], std=3e-8,
@@ -419,7 +419,7 @@ class AWLoss(nn.Module):
         delta = self.delta.unsqueeze(0).expand_as(v)
 
         # Evaluate Loss
-        f = 0.5 * torch.norm(T * (v - delta), p=2, dim=self.dims)
+        f = 0.5 * torch.norm(W * (v - delta), p=2, dim=self.dims)
 
         f = f.sum()
         if self.reduction == "mean":

@@ -1,3 +1,3 @@
 
 
-from .awloss import AWLoss
+from .wiener_loss import WienerLoss
