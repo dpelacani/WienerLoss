@@ -70,7 +70,11 @@ class WienerLoss(nn.Module):
             the difference, refer to the original paper. Default "reverse"
         penalty_function, optional
             the penalty function to apply to the filter. If None, the penalty
-            function is the identity. Default None
+            function is the identity. Takes "identity", "gaussian" or custom
+            penalty function. Default None
+        std, optional
+            the standard deviation of the gaussian when penalty_function="gaussian".
+            Mean is always zero. Default None
         store_filters, optional
             whether to store the filters in memory, useful for debugging.
             Option to store the filers before or after normalisation with
@@ -81,9 +85,8 @@ class WienerLoss(nn.Module):
             filters are clipped to this minimum value after computation. If
             None, operation is disabled. Default none
 
-    .. _Adaptive Waveform Inversion\: Theory:
-        https://www.s-cube.com/media/1204/segam2014-03712e1.pdf
-
+    .. _Convolve and Conquer \: Data Comparison with Wiener Filters:
+        https://arxiv.org/pdf/2311.06558
         """
     def __init__(self, method="fft", filter_dim=2, filter_scale=2,
                  reduction="mean", mode="reverse", penalty_function=None,
@@ -133,6 +136,7 @@ class WienerLoss(nn.Module):
                              ", but found {}".format(method))
 
         # Variables to store metadata
+        self.delta = None
         self.filters = None
         self.W = None
         self.current_epoch = 0
@@ -229,11 +233,10 @@ class WienerLoss(nn.Module):
         assert covmatrix.shape[0] == len(mean)
         assert len(mesh.shape) == len(mean) + 1, \
                "{} {}".format(len(mesh.shape), len(mean))
-
+               
         rv = MultivariateNormal(mean, covmatrix)
         rv = torch.exp(rv.log_prob(mesh))
         rv = rv / torch.abs(rv).max()
-        rv = -rv + rv.max()
         return rv
     
     def identity(self, mesh, val=1, **kwargs):
@@ -241,23 +244,31 @@ class WienerLoss(nn.Module):
         T = torch.zeros_like(xx) + val
         return T
 
-    def make_penalty(self, shape, std=1e-2, eta=0., penalty_function=None,
-                     flip=False,  device="cpu"):
-        arr = [torch.linspace(-1., 1., n, requires_grad=True).to(device)
+    def make_penalty(self, shape, eta=0., penalty_function=None, std=None, device="cpu"):
+        arr = [torch.linspace(-1., 1., n, requires_grad=True)
                for n in shape]
         mesh = torch.meshgrid(arr, indexing="ij")
         mesh = torch.stack(mesh, axis=-1)
-        if penalty_function is None:
-            # mean = torch.tensor([0. for i in range(mesh.shape[-1])]).to(device)
-            # covmatrix = torch.diag(torch.tensor(
-            #     [std**2 for i in range(mesh.shape[-1])])).to(device)
-            # penalty = self.multigauss(mesh, mean, covmatrix)
-            # penalty = -penalty + penalty.max() if flip else penalty
+        if penalty_function is None or penalty_function == "identity":
             penalty = self.identity(mesh)
+            
+        elif penalty_function == "gaussian":
+            std = self.std if std is None else std
+            mean = torch.tensor([0. for i in range(mesh.shape[-1])], requires_grad=True)
+            covmatrix = torch.diag(torch.tensor(
+                [std**2 for i in range(mesh.shape[-1])], requires_grad=True))
+            penalty = self.multigauss(mesh, mean, covmatrix)
+
         else:
             penalty = penalty_function(mesh)
+        
         penalty = penalty + eta*torch.rand_like(penalty)
-        return penalty
+        return penalty.to(device)
+    
+    def make_delta(self, shape):
+        delta = torch.empty(shape)
+        torch.nn.init.dirac_(delta.unsqueeze(0).unsqueeze(0))
+        return delta
 
     def wienerfft(self, x, y, fs, prwh=1e-9):
         """
@@ -276,7 +287,7 @@ class WienerLoss(nn.Module):
             * torch.conj(torch.fft.fftn(x, dim=self.dims))
 
         # Deconvolution of Fccorr by Facorr
-        prwh = prwh * torch.mean(torch.real(Fccorr), dim=0).mean()
+        # prwh = prwh * torch.mean(torch.real(Fccorr), dim=0).mean()
         # prwh = 
         # print(prwh.shape, prwh.min(), prwh.max(), prwh)
         Fdconv = (Fccorr + prwh) / (Facorr + prwh)
@@ -391,6 +402,7 @@ class WienerLoss(nn.Module):
             if self.mode == "forward":
                 v = self.wiener(recon, target, fs, epsilon)
 
+        # Clamp filters
         if self.clamp_min is not None:
             v = torch.clamp(v, min=self.clamp_min)
 
@@ -406,21 +418,30 @@ class WienerLoss(nn.Module):
         if self.store_filters == "norm":
             self.filters = v[:] / vnorm
 
-        # Penalty function
-        self.W = self.make_penalty(shape=fs[-self.filter_dim:], std=self.std,
-                                   eta=eta, device=recon.device, flip=True,
-                                   penalty_function=self.penalty_function)
-        W = self.W.unsqueeze(0).expand_as(v)
+        # Penalty function - recompute every iteration to recreate the computational graph
+        self.W = self.make_penalty(
+            shape=fs[-self.filter_dim:],
+            eta=eta, device=v.device,
+            penalty_function=self.penalty_function
+        )
+        W = self.W.unsqueeze(0).expand_as(v).to(v.device)
 
         # Delta
-        self.delta = self.make_penalty(fs[-self.filter_dim:], std=3e-8,
-                                       penalty_function=None,
-                                       device=recon.device, flip=True)
-        delta = self.delta.unsqueeze(0).expand_as(v)
+        if self.delta is None:
+            self.delta = self.make_delta(shape=fs[-self.filter_dim:])
+        # self.delta = self.make_penalty(
+        #     shape=fs[-self.filter_dim:],
+        #     eta=eta, device=v.device,
+        #     penalty_function="gaussian",
+        #     std=3e-3,
+        # )
+        delta = self.delta.unsqueeze(0).expand_as(v).to(v.device)
+        
 
         # Evaluate Loss
         f = 0.5 * torch.norm(W * (v - delta), p=2, dim=self.dims)
 
+        # Reduce
         f = f.sum()
         if self.reduction == "mean":
             f = f / recon.size(0)
