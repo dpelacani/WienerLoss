@@ -69,19 +69,17 @@ class AWLoss(nn.Module):
             "forward" or "reverse" computation of the filter. For details of
             the difference, refer to the original paper. Default "reverse"
         penalty_function, optional
-            the penalty function to apply to the filter. If None, a Gaussian
-            penalty will be created of mean zero and standard deviations
-            specified below. Mutually exclusive with "std". Default None
+            the penalty function to apply to the filter. If None, the penalty
+            function is the identity. Default None
         store_filters, optional
             whether to store the filters in memory, useful for debugging.
             Option to store the filers before or after normalisation with
             "norm" and "unorm". Default False.
         epsilon, optional
             the stabilization value to compute the filter. Default 1e-4.
-        std
-            the standard deviation value of the zero-mean gaussian generated
-            as a penalty function for the filter. If 'penalty_function' is
-            passed this value will not be used. Default 1e-4.
+        clamp_min, optional
+            filters are clipped to this minimum value after computation. If
+            None, operation is disabled. Default none
 
     .. _Adaptive Waveform Inversion\: Theory:
         https://www.s-cube.com/media/1204/segam2014-03712e1.pdf
@@ -237,6 +235,11 @@ class AWLoss(nn.Module):
         rv = rv / torch.abs(rv).max()
         rv = -rv + rv.max()
         return rv
+    
+    def identity(self, mesh, val=1, **kwargs):
+        xx, yy = mesh[:,:,0], mesh[:,:,1]
+        T = torch.zeros_like(xx) + val
+        return T
 
     def make_penalty(self, shape, std=1e-2, eta=0., penalty_function=None,
                      flip=False,  device="cpu"):
@@ -245,11 +248,12 @@ class AWLoss(nn.Module):
         mesh = torch.meshgrid(arr, indexing="ij")
         mesh = torch.stack(mesh, axis=-1)
         if penalty_function is None:
-            mean = torch.tensor([0. for i in range(mesh.shape[-1])]).to(device)
-            covmatrix = torch.diag(torch.tensor(
-                [std**2 for i in range(mesh.shape[-1])])).to(device)
-            penalty = self.multigauss(mesh, mean, covmatrix)
-            penalty = -penalty + penalty.max() if flip else penalty
+            # mean = torch.tensor([0. for i in range(mesh.shape[-1])]).to(device)
+            # covmatrix = torch.diag(torch.tensor(
+            #     [std**2 for i in range(mesh.shape[-1])])).to(device)
+            # penalty = self.multigauss(mesh, mean, covmatrix)
+            # penalty = -penalty + penalty.max() if flip else penalty
+            penalty = self.identity(mesh)
         else:
             penalty = penalty_function(mesh)
         penalty = penalty + eta*torch.rand_like(penalty)
@@ -272,6 +276,9 @@ class AWLoss(nn.Module):
             * torch.conj(torch.fft.fftn(x, dim=self.dims))
 
         # Deconvolution of Fccorr by Facorr
+        prwh = prwh * torch.mean(torch.real(Fccorr), dim=0).mean()
+        # prwh = 
+        # print(prwh.shape, prwh.min(), prwh.max(), prwh)
         Fdconv = (Fccorr + prwh) / (Facorr + prwh)
 
         # Inverse Fourier transform
