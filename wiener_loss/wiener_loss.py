@@ -90,7 +90,8 @@ class WienerLoss(nn.Module):
         """
     def __init__(self, method="fft", filter_dim=2, filter_scale=2,
                  reduction="mean", mode="reverse", penalty_function=None,
-                 store_filters=False, epsilon=1e-4,  std=1e-4, clamp_min=None):
+                 store_filters=False, epsilon=1e-4,  std=1e-4, clamp_min=None,
+                 corr_norm=None, rel_epsilon=False):
 
         super(WienerLoss, self).__init__()
 
@@ -101,6 +102,7 @@ class WienerLoss(nn.Module):
         self.penalty_function = penalty_function
         self.mode = mode
         self.clamp_min = clamp_min
+        self.rel_epsilon=rel_epsilon
 
         # Check arguments
         if store_filters in ["norm", "unorm"] or store_filters is False:
@@ -121,6 +123,15 @@ class WienerLoss(nn.Module):
         else:
             raise ValueError("Filter dimensions must be 1, 2 or 3"
                              ", but found {}".format(filter_dim))
+            
+        if corr_norm is not None and corr_norm.lower() in ["rms", "minmax", "ncc", "zncc"]:
+            self.corr_norm = corr_norm.lower()
+        elif corr_norm is None:
+            self.corr_norm = corr_norm
+        else:
+            raise ValueError("Normalisation of cross correlation only"
+                             " supports 'rms', 'minmax', 'ncc', and 'zncc' but found"
+                             " '{}'".format(corr_norm))
 
         if method == "fft" or method == "direct":
             self.method = method
@@ -270,6 +281,13 @@ class WienerLoss(nn.Module):
         torch.nn.init.dirac_(delta.unsqueeze(0).unsqueeze(0))
         return delta
 
+
+    def rms(self, x):
+        square = torch.pow(x, 2)
+        mean_square = torch.mean(square)#, dim=self.dims)
+        rms = torch.sqrt(mean_square)
+        return rms.item()
+
     def wienerfft(self, x, y, fs, prwh=1e-9):
         """
         George Strong (geowstrong@gmail.com)
@@ -285,11 +303,28 @@ class WienerLoss(nn.Module):
         # Auto-correlation of x
         Facorr = torch.fft.fftn(x, dim=self.dims)\
             * torch.conj(torch.fft.fftn(x, dim=self.dims))
+            
+        # Normalise correlations
+        if self.corr_norm == "rms":
+            rms = self.rms(torch.abs(Fccorr))
+            Fccorr = Fccorr / rms
+            Facorr = Facorr / rms
+            
+        elif self.corr_norm == "ncc":
+            Fccorr = Fccorr / Fccorr.std()
+            Facorr = Facorr / Facorr.std()
+        
+        elif self.corr_norm == "minmax":
+            Fccorr = Fccorr / torch.max(torch.abs(Fccorr))
+            Facorr = Facorr / torch.max(torch.abs(Facorr))
+            
+        elif self.corr_norm == "zncc":
+            Fccorr = (Fccorr - Fccorr.mean()) / Fccorr.std()
+            Facorr = (Facorr - Facorr.mean()) / Facorr.std()
 
-        # Deconvolution of Fccorr by Facorr
-        # prwh = prwh * torch.mean(torch.real(Fccorr), dim=0).mean()
-        # prwh = 
-        # print(prwh.shape, prwh.min(), prwh.max(), prwh)
+        # Deconvolution of Fccorr by Facorr with (relative) pre-whitening
+        if self.rel_epsilon:
+            prwh = prwh * self.rms(torch.abs(Fccorr)) 
         Fdconv = (Fccorr + prwh) / (Facorr + prwh)
 
         # Inverse Fourier transform
