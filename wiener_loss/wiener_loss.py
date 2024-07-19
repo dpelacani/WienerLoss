@@ -168,7 +168,7 @@ class WienerLoss(nn.Module):
         
         # Initialise penalty as trainable parameters if prompted
         if self.train_penalty:
-            self.W = nn.Parameter(torch.ones(self.filter_shape)+1., requires_grad=True)
+            self.W = nn.Parameter(torch.ones(self.filter_shape) + 100., requires_grad=True)
 
     def make_toeplitz(self, a):
         "Makes toeplitz matrix of a vector A"
