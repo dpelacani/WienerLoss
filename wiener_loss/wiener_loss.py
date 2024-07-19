@@ -8,45 +8,9 @@ class WienerLoss(nn.Module):
     """The WienerLoss class implements the adaptive Wiener criterion, which
     aims to compare two data samples through a convolutional filter. The
     methodology is inspired by the paper `Adaptive Waveform Inversion:
-    Theory`_ (Warner and Guasch, 2014).
-
-    A matching filter `w` can be computed such that it transforms
-    a targetsignal `p` into the data `d` under an L2 norm principle:
-
-    g = || p*w - d ||^2
-
-    Let 'Z' be the Toeplitz matrix formulation of `p` such that the
-    equation above is equivalent to:
-    g = || Zw - d ||^2
-
-    Minimizing this functional:
-    dgdw = Z^T (Zw - d)
-    dgdw --> 0 : w = (Z^T @ Z)^(-1) @ Z^T @ d
-
-    To stabilize the matrix inversion, an amount is added to the diagonal
-    of (Z^T @ Z) based on a value epsilon such that the inverted matrix is
-    (Z^T @ Z) + max(diagonal(Z^T @ Z)) * epsilon
-
-
-    In 2D, convolving p with w (or w with p) is equivalent to the matrix
-    vector multiplication Zd where Z is the doubly block Toeplitz of the
-    reconstructed image P and w is the flattened array of the 2D kernel W.
-
-    Therefore, the system is equivalent to solving || Zw - d ||^2, and
-    the solution to w is given by
-    w = (Z^T @ Z + max(diagonal(Z^T @ Z)) * epsilon)^(-1) @ Z^T @ d
-
-    This composes the direct method.
-
-    Alternatively, convolution can be performed in the frequency domain
-    with multiplication and division operations.
-    This tends to be much more computationally efficient.
-
-    The criterion is evaluated through a symmetrical monotonically decreasing
-    function T and a dirac delta function that rewards when the filter kernel
-    `w` is close to the identity kernel, and penalizes otherwise.
-
-    f = 1/2 ||T * (v - delta)||^2
+    Theory`_ (Warner and Guasch, 2014) and is presented in 
+    _Convolve and Conquer \: Data Comparison with Wiener Filters:
+        https://arxiv.org/pdf/2311.06558 (Cruz et al, 2023)
 
     Args:
         method, optional
@@ -70,8 +34,11 @@ class WienerLoss(nn.Module):
             the difference, refer to the original paper. Default "reverse"
         penalty_function, optional
             the penalty function to apply to the filter. If None, the penalty
-            function is the identity. Takes "identity", "gaussian" or custom
-            penalty function. Default None
+            function is the identity. Takes "identity", "gaussian" "trainable"
+            or custom penalty function. If "trainable" is passed, a nn.Parameter
+            is initialised filled with a constant value. In order to train, the
+            class "self.parameters()" should be passed to a compatible optimiser.
+            Default None
         std, optional
             the standard deviation of the gaussian when penalty_function="gaussian".
             Mean is always zero. Default None
@@ -81,10 +48,21 @@ class WienerLoss(nn.Module):
             "norm" and "unorm". Default False.
         epsilon, optional
             the stabilization value to compute the filter. Default 1e-4.
+        rel_epsilon, optional
+            whether the epislon value should be passed as absolute to the computation
+            or understood by the class as a percentage of the root mean square
+            of the cross-correlation. Defaults False.
+        corr_norm, optional,
+            if passed, it is the form of normalisation of the outputs of correlation
+            in the filter computation. Takes "minmax", "rms", "ncc", and "zncc".
+            Defaults to None.
         clamp_min, optional
             filters are clipped to this minimum value after computation. If
             None, operation is disabled. Default none
-        input_shape: (C, H, W) no batch
+        input_shape, optional 
+            shape of inpute for pre-computation of (C, H, W) no batch of 
+            important variables. Required if penalty_function is 'trainable'
+            
     .. _Convolve and Conquer \: Data Comparison with Wiener Filters:
         https://arxiv.org/pdf/2311.06558
         """
