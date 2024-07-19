@@ -5,7 +5,7 @@ from math import floor
 
 
 class WienerLoss(nn.Module):
-    """The AWLoss class implements the adaptive Wiener criterion, which
+    """The WienerLoss class implements the adaptive Wiener criterion, which
     aims to compare two data samples through a convolutional filter. The
     methodology is inspired by the paper `Adaptive Waveform Inversion:
     Theory`_ (Warner and Guasch, 2014).
@@ -84,14 +84,14 @@ class WienerLoss(nn.Module):
         clamp_min, optional
             filters are clipped to this minimum value after computation. If
             None, operation is disabled. Default none
-
+        input_shape: (C, H, W) no batch
     .. _Convolve and Conquer \: Data Comparison with Wiener Filters:
         https://arxiv.org/pdf/2311.06558
         """
     def __init__(self, method="fft", filter_dim=2, filter_scale=2,
                  reduction="mean", mode="reverse", penalty_function=None,
                  store_filters=False, epsilon=1e-4,  std=1e-4, clamp_min=None,
-                 corr_norm=None, rel_epsilon=False):
+                 corr_norm=None, rel_epsilon=False, input_shape=None):
 
         super(WienerLoss, self).__init__()
 
@@ -132,7 +132,7 @@ class WienerLoss(nn.Module):
             raise ValueError("Normalisation of cross correlation only"
                              " supports 'rms', 'minmax', 'ncc', and 'zncc' but found"
                              " '{}'".format(corr_norm))
-
+        
         if method == "fft" or method == "direct":
             self.method = method
             if method == "direct":
@@ -145,12 +145,30 @@ class WienerLoss(nn.Module):
         else:
             raise ValueError("method must be 'fft' or 'direct'"
                              ", but found {}".format(method))
+            
+        if penalty_function=="trainable": 
+            if input_shape is None:
+                raise ValueError("trainable penalty requires 'input_shape' to be passed")
+            else:
+                self.train_penalty = True
+        else:
+            self.train_penalty = False
 
         # Variables to store metadata
         self.delta = None
         self.filters = None
         self.W = None
         self.current_epoch = 0
+        self.filter_shape=None
+        
+        # Filter shape and delta
+        if input_shape is not None:
+            self.filter_shape = self.get_filter_shape([1]+list(input_shape))
+            self.delta = self.make_delta(shape=self.filter_shape[-self.filter_dim:])
+        
+        # Initialise penalty as trainable parameters if prompted
+        if self.train_penalty:
+            self.W = nn.Parameter(torch.ones(self.filter_shape)+1., requires_grad=True)
 
     def make_toeplitz(self, a):
         "Makes toeplitz matrix of a vector A"
@@ -417,25 +435,26 @@ class WienerLoss(nn.Module):
             target = target.flatten(start_dim=1)
 
         # Define size of the filter, reserve memory to store them if prompted
-        fs = self.get_filter_shape(recon.shape)
+        if self.filter_shape is None:
+            self.filter_shape = self.get_filter_shape(recon.shape)
         if self.store_filters:
-            self.filters = torch.zeros([bs]+fs).to(recon.device)
+            self.filters = torch.zeros([bs]+self.filter_shape).to(recon.device)
 
         # Compute wiener filter
         epsilon = self.epsilon if epsilon is None else epsilon
         if self.method == "fft":
-            recon = self.pad_signal(recon, fs)
-            target = self.pad_signal(target, fs)
+            recon = self.pad_signal(recon, self.filter_shape)
+            target = self.pad_signal(target, self.filter_shape)
             if self.mode == "reverse":
-                v = self.wienerfft(target, recon, fs, epsilon)
+                v = self.wienerfft(target, recon, self.filter_shape, epsilon)
             elif self.mode == "forward":
-                v = self.wienerfft(recon, target, fs, epsilon)
+                v = self.wienerfft(recon, target, self.filter_shape, epsilon)
 
         elif self.method == "direct":
             if self.mode == "reverse":
-                v = self.wiener(target, recon, fs, epsilon)
+                v = self.wiener(target, recon, self.filter_shape, epsilon)
             if self.mode == "forward":
-                v = self.wiener(recon, target, fs, epsilon)
+                v = self.wiener(recon, target, self.filter_shape, epsilon)
 
         # Clamp filters
         if self.clamp_min is not None:
@@ -454,25 +473,24 @@ class WienerLoss(nn.Module):
             self.filters = v[:] / vnorm
 
         # Penalty function - recompute every iteration to recreate the computational graph
-        self.W = self.make_penalty(
-            shape=fs[-self.filter_dim:],
-            eta=eta, device=v.device,
-            penalty_function=self.penalty_function
-        )
+        if not self.train_penalty:
+            self.W = self.make_penalty(
+                shape=self.filter_shape[-self.filter_dim:],
+                eta=eta, device=v.device,
+                penalty_function=self.penalty_function
+            )
+        else:
+            with torch.no_grad():
+                self.W.add(torch.rand_like(self.W) * eta)   
+                self.W.clamp_(min=0.5) #, max=1.)        
         W = self.W.unsqueeze(0).expand_as(v).to(v.device)
+
 
         # Delta
         if self.delta is None:
-            self.delta = self.make_delta(shape=fs[-self.filter_dim:])
-        # self.delta = self.make_penalty(
-        #     shape=fs[-self.filter_dim:],
-        #     eta=eta, device=v.device,
-        #     penalty_function="gaussian",
-        #     std=3e-3,
-        # )
+            self.delta = self.make_delta(shape=self.filter_shape[-self.filter_dim:])
         delta = self.delta.unsqueeze(0).expand_as(v).to(v.device)
         
-
         # Evaluate Loss
         f = 0.5 * torch.norm(W * (v - delta), p=2, dim=self.dims)
 
