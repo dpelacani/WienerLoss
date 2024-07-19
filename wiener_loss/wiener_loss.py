@@ -269,7 +269,12 @@ class WienerLoss(nn.Module):
         return rv
     
     def identity(self, mesh, val=1, **kwargs):
-        xx, yy = mesh[:,:,0], mesh[:,:,1]
+        if self.filter_dim == 1:
+            xx = mesh[:,0]
+        elif self.filter_dim == 2:
+            xx, yy = mesh[:,:,0], mesh[:,:,1]
+        elif self.filter_dim == 3:
+            xx, yy, zz = mesh[:,:,:, 0], mesh[:,:,: 1], mesh[:,:,: 2]
         T = torch.zeros_like(xx) + val
         return T
 
