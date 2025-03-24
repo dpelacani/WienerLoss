@@ -1,3 +1,1 @@
-
-
-from .wiener_loss import WienerLoss
+from .wiener_loss import *
