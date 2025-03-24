@@ -1,6 +1,6 @@
 # TODO:
 # LDR with pytorch conv
-# Sigmoid in penalty
+# Softmax in penalty
 # MSWienerLoss
 
 import torch
@@ -266,14 +266,13 @@ class WienerLoss(nn.Module):
             * torch.conj(torch.fft.fftn(x, dim=self.dims))
             
         # Normalise correlations
+        rms_ = rms(torch.abs(Fccorr))
         if self.corr_norm:
-            rms_ = rms(torch.abs(Fccorr))
             Fccorr = Fccorr / rms_
             Facorr = Facorr / rms_
        
-
         # Deconvolution of Fccorr by Facorr with relative pre-whitening
-        lmbda = lmbda * rms(torch.abs(Fccorr)) 
+        lmbda = lmbda * rms_
         Fdconv = (Fccorr + lmbda) / (Facorr + lmbda)
 
         # Inverse Fourier transform
@@ -399,16 +398,14 @@ class WienerLoss(nn.Module):
         # Penalty function - recompute every iteration to recreate the computational graph
         if not self.train_penalty:
             self.W = self._make_penalty(
-                shape=self.filter_shape[-self.filter_dim:],
+                shape=self.filter_shape[-self.filter_dim:], # last dims
                 eta=eta, device=v.device,
                 penalty_function=self.penalty_function
             )
         else:
             with torch.no_grad():
+                # TODO: in future implement here an energy constraint with Softmax
                 pass
-                self.W.clamp_(min=0.) # bound
-                self.W.div_(torch.sum(self.W.data)) # normalise
-                self.W.add_(torch.rand_like(self.W) * eta)  # stabilisie
         W = self.W.unsqueeze(0).expand_as(v).to(v.device)
 
         # Delta
