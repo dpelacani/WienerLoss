@@ -1,4 +1,4 @@
-# Adaptive Wiener Loss
+# Wiener Loss
 
 Data comparison lies at the heart of machine learning: for many applications, simplistic loss
 functions - such as the L2 loss that rely on local element-wise differences between samples - have
