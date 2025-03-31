@@ -134,4 +134,4 @@ The `WienerLoss` class supports data of dimensions up to 3. The dimensionality o
 Note that in all cases there exists on filter per channel per sample in the batch.
 
 ## Example Notebooks:
-!! Need updating!
+!! Needs updating!
