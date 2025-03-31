@@ -5,7 +5,7 @@ functions - such as the L2 loss that rely on local element-wise differences betw
 taken preference. Such metrics are notorious for producing low-quality results. The proposed Adaptive Wiener Loss (AWLoss) addresses this issue by introducing a new convolutional approach to data comparison; one that uses a Wiener filter approach to naturally incorporate global information and promote spatial awareness within the compared samples. 
 
 
-This repository contains an implementation of this loss in a natural [`Pytorch`](https://github.com/pytorch/pytorch) as here it is promoted as a loss function to drive deep learning problems. The source code is a single file that contains a single class named [`AWLoss`](awloss/awloss.py). Its usage and customisation are described below.
+This repository contains an implementation of this loss in a natural [`Pytorch`](https://github.com/pytorch/pytorch) as here it is promoted as a loss function to drive deep learning problems. The source code is a single file that contains a single class named [`WienerLoss`](awloss/awloss.py). Its usage and customisation are described below.
 
 A demonstration of this loss in a deep learning context is shown in the following figure for a medical data imputation problem:
 
@@ -68,7 +68,7 @@ By minimising $L$, we implicitly drive signal $\mathbf{d}$ to become more simila
 
 <img src="figs/scheme.png" alt="drawing" width="500"/>
 
-## Input Arguments
+## Input Arguments (needs updating)
 On object initialistion:
 
     Args:
@@ -122,9 +122,16 @@ On object calling
         eta, optional
             noise to add to penalty function. Default 0.
 
-## Note on Filter Dimensions
-The `AWLoss` class supports data of dimensions up to 3, excluding the batch dimension. The filter dimension can be arbritarily chosen by the user, up until the dimension of the data itself, i.e. a 1D signal **cannot** be processed using `filter_dim` as to 2 or 3, but a 3D signal **can** be processed processed using `filter_dim` as 1, 2 or 3.
+## Note on Filter Dimensions (needs better formatting)
+The `WienerLoss` class supports data of dimensions up to 3. The dimensionality of the filter is inferred from the size of the input.
 
-Using the 1D version of the AWLoss flattens the signal before evaluation in all dimensions apart from the batch dimension; in the 2D implementation, a single 2D filter is computed for each channel of the data; and in 3D a single 3D filter is calculated **using the number of channels as the third dimensionality.**
+[batch, channels, length] -> 1D filters
 
-Further improvements to this code will allow dimensions up to 4, where the first dimension is the number of channels and the following 3 are the volumetric data. In such, this would calculate one 3D filter per channel in the signal.
+[batch, channels, height, width] -> 2D filters
+
+[batch, channels, depth, height, width] -> 3D filters
+
+Note that in all cases there exists on filter per channel per sample in the batch.
+
+## Example Notebooks:
+!! Need updating!
