@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - version3
   pull_request:
     branches:
       - main
