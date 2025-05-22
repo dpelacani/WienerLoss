@@ -1,6 +1,7 @@
 # Wiener Loss
 
 This repository contains the implementation of the `WienerLoss` as presented in [Convolve and Conquer: Data Comparison with Wiener Filters](https://arxiv.org/abs/2311.06558) and at the workshop [Medical Imaging meets NeurIPS 2023](https://neurips.cc/virtual/2023/82490).
+little change test
 
 ---
 
