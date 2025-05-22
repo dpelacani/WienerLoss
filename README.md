@@ -1,5 +1,9 @@
 # Wiener Loss
 
+This repository contains the implementation of the `WienerLoss` as presented in [Convolve and Conquer: Data Comparison with Wiener Filters](https://arxiv.org/abs/2311.06558) and at the workshop [Medical Imaging meets NeurIPS 2023](https://neurips.cc/virtual/2023/82490).
+
+---
+
 Data comparison lies at the heart of machine learning: for many applications, simplistic loss
 functions - such as the L2 loss that rely on local element-wise differences between samples - have
 taken preference. Such metrics are notorious for producing low-quality results. The proposed Wiener Loss addresses this issue by introducing a new convolutional approach to data comparison; one that uses a Wiener filter approach to naturally incorporate global information and promote spatial awareness within the compared samples. 
@@ -122,16 +126,20 @@ On object calling
         eta, optional
             noise to add to penalty function. Default 0.
 
-## Note on Filter Dimensions (needs better formatting)
-The `WienerLoss` class supports data of dimensions up to 3. The dimensionality of the filter is inferred from the size of the input.
+## Filter Dimensions
 
-[batch, channels, length] -> 1D filters
+The `WienerLoss` class automatically supports input data with up to 3 spatial dimensions. The dimensionality of the Wiener filter is inferred directly from the input shape:
 
-[batch, channels, height, width] -> 2D filters
+| **Input Shape**                             | **Filter Dimensionality** |
+|----------------------------------------------|---------------------------|
+| `[batch, channels, length]`                  | 1D filters                |
+| `[batch, channels, height, width]`           | 2D filters                |
+| `[batch, channels, depth, height, width]`    | 3D filters                |
 
-[batch, channels, depth, height, width] -> 3D filters
+**Important:**  
+For each case, the `WienerLoss` creates **one filter per channel per sample** in the batch. 
 
-Note that in all cases there exists on filter per channel per sample in the batch.
+The batch dimension is always required.
 
 ## Example Notebooks:
-!! Needs updating!
+*Needs updating*
