@@ -73,7 +73,7 @@ By minimising $L$, we implicitly drive signal $\mathbf{d}$ to become more simila
 
 <img src="figs/scheme.png" alt="drawing" width="500"/>
 
-## Input Arguments (needs updating)
+## Input Arguments
 On object initialistion:
 
     Args:
