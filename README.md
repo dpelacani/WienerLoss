@@ -79,37 +79,37 @@ On object initialistion:
     Args:
         method, optional
             "fft" for Fast Fourier Transform or "direct" for the
-            Levinson-Durbin recurssion algorithm. Defaults to "fft"
-        filter_dim, optional
-            the dimensionality of the filter. This parameter should be
-            upper-bounded by the dimensionality of the data. If data is
-            3-dimensional and filter_dim is set to 2, one filter is computed
-            per channel dimension assuming format [B, NC, H , W]. Current
-            implementation only supports filter dimensions for 1D, 2D and 3D.
-            Defaults to 2
+            Levinson-Durbin recurssion algorithm.
+            In this version only "fft" is available. Defaults to "fft"
         filter_scale, optional
             the scale of the filters compared to the size of the data.
             Defaults to 2
         reduction, optional
             specifies the reduction to apply to the output, "mean" or "sum".
-            Defaults to mean
+            Defaults to "mean"
         mode, optional
             "forward" or "reverse" computation of the filter. For details of
-            the difference, refer to the original paper. Default "reverse"
+            the difference, refer to the original paper. Default "reverse".
         penalty_function, optional
-            the penalty function to apply to the filter. If None, a Gaussian
-            penalty will be created of mean zero and standard deviations
-            specified below. Mutually exclusive with "std". Default None
+            the penalty function to apply to the filter. It should be either:
+            a python function that receives a mesh as input; "identity", 
+            which creates a uniform mesh populated with the value 1; or 
+            "gaussian", which creates a gaussian function with mean of 0 and
+            standard deviation defined by the parameter "std". If None, the
+            penalty function is the identity. Default None.
         store_filters, optional
             whether to store the filters in memory, useful for debugging.
             Option to store the filers before or after normalisation with
-            "norm" and "unorm". Default False.
-        epsilon, optional
-            the stabilization value to compute the filter. Default 1e-4.
+            "norm" and "unorm", respectively. Default False.
+        lmbda, optional
+            the stabilization value to compute the filter. It is used as
+            a percentage value of the RMS of the cross-correlation and
+            applied equally to the nominator and denominator for
+            decorrelation. Default 1e-4.
         std, optional
             the standard deviation value of the zero-mean gaussian generated
-            as a penalty function for the filter. If 'penalty_function' is
-            passed this value will not be used. Default 1e-4.
+            as a penalty function for the filter. Only applicable when
+            'penalty_function' is passed as "gaussian". Default 1e-4.
 
 On object calling
 
@@ -118,9 +118,12 @@ On object calling
             the reconstructed signal
         target
             the target signal
-        epsilon, optional
-            the stabilization value to compute the filter. If passed,
-            overwrites the class attribute of same name. Default None.
+        lmbda, optional
+            the stabilization value to compute the filter. It is used as
+            a percentage value of the RMS of the cross-correlation and
+            applied equally to the nominator and denominator for
+            decorrelation. If passed, overwrites the class attribute
+            of same name. Default None.
         gamma, optional
             noise to add to both target and reconstructed signals
             for training stabilization. Default 0.
