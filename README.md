@@ -78,7 +78,7 @@ On object initialistion:
 
     Args:
         method, optional
-            "fft" for Fast Fourier Transform or "direct" for the
+            "fft" for Fast Fourier Transform or "ldr" for the
             Levinson-Durbin recurssion algorithm.
             In this version only "fft" is available. Defaults to "fft"
         filter_scale, optional

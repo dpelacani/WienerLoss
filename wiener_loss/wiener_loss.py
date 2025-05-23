@@ -81,7 +81,7 @@ class WienerLoss(nn.Module):
 
         self.method = method.lower()
         if self.method == "ldr":
-            raise NotImplementedError("LDR method not implemented")
+            raise NotImplementedError("Levinson-Durbin Recurssion method not implemented")
 
         if penalty_function == "trainable":
             if input_shape is None:
