@@ -214,6 +214,7 @@ class WienerLoss(nn.Module):
         else:
             with torch.no_grad():
                 # TODO: implement softmax for trainable penalty
+                self.W.copy_(torch.softmax(self.W, dim=1))
                 pass
 
         # Delta

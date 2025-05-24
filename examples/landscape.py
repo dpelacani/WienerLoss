@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
-import progressbar
+from tqdm import tqdm
 import copy
 
 def angle(vec1, vec2):
@@ -90,19 +90,16 @@ def compute_loss_landscape(model, data_loader, criterion, xmin=-0.5, xmax=0.5, y
 
     # Evaluate loss perturbing the weights
     model_to_perturb = copy.deepcopy(model)
-    with progressbar.ProgressBar(max_value=nx*ny) as bar:
-      for i, dx in enumerate(dx_arr):
-          for j, dy in enumerate(dy_arr):
-              # Perturb weights and evaluate loss
-              update_weights(model_to_perturb, weights, x_dir, y_dir, dx, dy, device)
-              loss = eval(model_to_perturb, criterion, data_loader, device)
-              loss_landscape[i, j] = loss.item()
+    for i, dx in tqdm(enumerate(dx_arr)):
+        for j, dy in enumerate(dy_arr):
+            # Perturb weights and evaluate loss
+            update_weights(model_to_perturb, weights, x_dir, y_dir, dx, dy, device)
+            loss = eval(model_to_perturb, criterion, data_loader, device)
+            loss_landscape[i, j] = loss.item()
 
-              # Ocasionally print loss
-            #   if (nx*i + j) % 10 == 0:
-            #     print("\t Loss: ", loss)
-
-              bar.update(nx*i + j)
+            # Ocasionally print loss
+        #   if (nx*i + j) % 10 == 0:
+        #     print("\t Loss: ", loss)
     return xx, yy, loss_landscape
 
 def visualise_landscape(model, loader, criterion, xmin=-0.5, xmax=0.5, ymin=-0.5, ymax=0.5, vmin=None, vmax=None, mode="plot", nx=25, ny=25, device="cpu"):
