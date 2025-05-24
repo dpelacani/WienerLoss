@@ -4,11 +4,13 @@ import torch.nn.functional as F
 
 from .wiener_loss import WienerLoss
 
+# TODO: make such that the code works without having to pass input_shape, i.e. it's inferred from recon and target
+
 class PatchWienerLoss(nn.Module):
     def __init__(self, 
+                 input_shape,
                  patch_size=(16, 16), 
                  stride=(8, 8), 
-                 input_shape=(1, 28, 28), 
                  filter_scale=2, 
                  reduction='mean',
                  mode='reverse',
