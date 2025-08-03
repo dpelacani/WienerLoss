@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from .wiener_loss import WienerLoss
 
 # TODO: make such that the code works without having to pass input_shape, i.e. it's inferred from recon and target
+# TODO: add option to adaptive weights for each patch, based on patch energy or variance
 
 class PatchWienerLoss(nn.Module):
     def __init__(self, 
@@ -34,7 +35,7 @@ class PatchWienerLoss(nn.Module):
         super(PatchWienerLoss, self).__init__()
         self.patch_size = patch_size
         self.stride = stride
-        self.global_weight = global_weight
+        self.global_weight = min(1, max(0, global_weight))
 
         # Instantiate base WienerLoss for patches
         self.wiener_loss_patch = WienerLoss(

@@ -140,7 +140,7 @@ class WienerLoss(nn.Module):
         torch.nn.init.dirac_(delta.unsqueeze(0).unsqueeze(0))
         return delta
 
-    def wienerfft(self, x, y, fs, lmbda=1e-9):
+    def wienerfft(self, x, y, fs, lmbda=1e-4):
         assert x.shape == y.shape, "x and y must have the same shape"
         B, C = x.shape[:2]
 
